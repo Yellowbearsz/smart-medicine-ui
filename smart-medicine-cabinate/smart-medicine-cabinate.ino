@@ -75,8 +75,8 @@ bool rtcReady = false;
 
 // =====================================================
 Servo lockServo;
-const int LOCK_ANGLE = 0;
-const int UNLOCK_ANGLE = 90;
+const int LOCK_ANGLE = 20;
+const int UNLOCK_ANGLE = 80;
 bool isLocked = true;
 
 // =====================================================
@@ -647,54 +647,66 @@ void readLockCommand() {
 
 // =====================================================
 // LOCK
+void moveServoSafe(int angle) {
+  lockServo.setPeriodHertz(50);
+  lockServo.attach(SERVO_PIN, 600, 2300);
+  lockServo.write(angle);
+  delay(500);
+  lockServo.detach();
+}
 
-// =====================================================
+// ใต้ตรงนี้เป็นของเดิม
 void lockCabinet() {
-  lockServo.write(
-    LOCK_ANGLE
-  );
+// =====================================================
+void moveServoSafe(LOCK_ANGLE); {
+
+  Serial.println("ENTER lockCabinet");
+
+  lockServo.write(20);
+
+  delay(600);
+
+  Serial.println("AFTER servo");
+
   isLocked = true;
-  Serial.println(
-    "Cabinet LOCKED"
+
+  Serial.println("BEFORE Firebase");
+
+  Firebase.RTDB.setString(
+    &fbdo,
+    devicePath + "/lockStatus",
+    "LOCKED"
   );
-  if (
-    Firebase.ready()
-  ) {
-    Firebase.RTDB.setString(
-      &fbdo,
-      devicePath
-        + "/lockStatus",
-      "LOCKED"
-    );
-  }
-  showStatus();
+
+  Serial.println("AFTER Firebase");
 }
 
 // =====================================================
 // UNLOCK
 
 // =====================================================
-void unlockCabinet() {
-  lockServo.write(
-    UNLOCK_ANGLE
-  );
-  isLocked = false;
-  Serial.println(
-    "Cabinet UNLOCKED"
-  );
-  if (
-    Firebase.ready()
-  ) {
-    Firebase.RTDB.setString(
-      &fbdo,
-      devicePath
-        + "/lockStatus",
-      "UNLOCKED"
-    );
-  }
-  showStatus();
-}
+void moveServoSafe(UNLOCK_ANGLE); {
 
+  Serial.println("ENTER unlockCabinet");
+
+  lockServo.write(80);
+
+  delay(600);
+
+  Serial.println("AFTER servo");
+
+  isLocked = false;
+
+  Serial.println("BEFORE Firebase");
+
+  Firebase.RTDB.setString(
+    &fbdo,
+    devicePath + "/lockStatus",
+    "UNLOCKED"
+  );
+
+  Serial.println("AFTER Firebase");
+}
 // =====================================================
 // CHECK DOOR
 
