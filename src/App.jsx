@@ -19,6 +19,8 @@ export default function App() {
   const [screen, setScreen] = useState("home");
   const [newTime, setNewTime] = useState("");
   const [scheduleMessage, setScheduleMessage] = useState("");
+  const [editingScheduleId, setEditingScheduleId] = useState("");
+  const [editingTime, setEditingTime] = useState("");
   const [cabinetStatus, setCabinetStatus] = useState("-");
   const [lastOpened, setLastOpened] = useState("-");
   const [firebaseReady, setFirebaseReady] = useState(false);
@@ -324,6 +326,49 @@ export default function App() {
     } catch (error) {
       console.error(error);
       setScheduleMessage("ลบยาไม่สำเร็จ");
+    }
+  };
+
+  const startEditSchedule = (item) => {
+    setEditingScheduleId(item.id);
+    setEditingTime(item.time);
+    setScheduleMessage("");
+  };
+
+  const cancelEditSchedule = () => {
+    setEditingScheduleId("");
+    setEditingTime("");
+  };
+
+  const saveEditSchedule = async (item) => {
+    const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+    if (!timeRegex.test(editingTime)) {
+      setScheduleMessage(
+        "กรุณาพิมพ์เวลาแบบ HH:MM เช่น 08:30"
+      );
+      return;
+    }
+
+    try {
+      await update(
+        ref(
+          db,
+          `smartMedicineCabinet/schedules/${item.id}`
+        ),
+        {
+          time: editingTime,
+        }
+      );
+
+      setEditingScheduleId("");
+      setEditingTime("");
+      setScheduleMessage(
+        `แก้เวลาเป็น ${editingTime} เรียบร้อย`
+      );
+    } catch (error) {
+      console.error(error);
+      setScheduleMessage("แก้เวลาไม่สำเร็จ");
     }
   };
 
@@ -725,45 +770,166 @@ export default function App() {
                     className="info-card"
                     style={{
                       opacity: item.enabled ? 1 : 0.55,
+                      alignItems: "center",
+                      gap: "8px",
+                      flexWrap: "wrap",
                     }}
                   >
                     <div className="info-icon green">
                       <Clock3 size={24} />
                     </div>
 
-                    <div className="info-text" style={{ flex: 1 }}>
-                      <div className="info-label">{item.medicine}</div>
-                      <div className="info-value">{item.time}</div>
+                    <div
+                      className="info-text"
+                      style={{
+                        flex: 1,
+                        minWidth: "120px",
+                      }}
+                    >
+                      <div className="info-label">
+                        {item.medicine}
+                      </div>
+
+                      {editingScheduleId === item.id ? (
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={5}
+                          value={editingTime}
+                          onChange={(e) => {
+                            let value =
+                              e.target.value.replace(
+                                /[^0-9:]/g,
+                                ""
+                              );
+
+                            if (
+                              value.length === 2
+                              &&
+                              !value.includes(":")
+                              &&
+                              editingTime.length
+                                < value.length
+                            ) {
+                              value += ":";
+                            }
+
+                            setEditingTime(
+                              value.slice(0, 5)
+                            );
+                          }}
+                          placeholder="HH:MM"
+                          autoFocus
+                          style={{
+                            marginTop: "4px",
+                            width: "92px",
+                            boxSizing: "border-box",
+                            padding: "7px 8px",
+                            border: "1px solid #cfd5dc",
+                            borderRadius: "8px",
+                            fontSize: "16px",
+                            fontWeight: 700,
+                          }}
+                        />
+                      ) : (
+                        <div className="info-value">
+                          {item.time}
+                        </div>
+                      )}
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => toggleSchedule(item)}
-                      style={{
-                        border: 0,
-                        borderRadius: "999px",
-                        padding: "8px 10px",
-                        fontWeight: 800,
-                        cursor: "pointer",
-                        background: item.enabled ? "#dcfce7" : "#eceff3",
-                      }}
-                    >
-                      {item.enabled ? "ON" : "OFF"}
-                    </button>
+                    {editingScheduleId === item.id ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            saveEditSchedule(item)
+                          }
+                          style={{
+                            border: 0,
+                            borderRadius: "8px",
+                            padding: "8px 10px",
+                            fontWeight: 800,
+                            cursor: "pointer",
+                            background: "#20b85a",
+                            color: "#fff",
+                          }}
+                        >
+                          SAVE
+                        </button>
 
-                    <button
-                      type="button"
-                      onClick={() => deleteSchedule(item)}
-                      aria-label={`Delete ${item.time}`}
-                      style={{
-                        border: 0,
-                        background: "transparent",
-                        cursor: "pointer",
-                        padding: "7px",
-                      }}
-                    >
-                      <Trash2 size={20} />
-                    </button>
+                        <button
+                          type="button"
+                          onClick={cancelEditSchedule}
+                          style={{
+                            border: "1px solid #d1d5db",
+                            borderRadius: "8px",
+                            padding: "8px 10px",
+                            fontWeight: 800,
+                            cursor: "pointer",
+                            background: "#fff",
+                          }}
+                        >
+                          CANCEL
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            startEditSchedule(item)
+                          }
+                          style={{
+                            border: "1px solid #2563eb",
+                            borderRadius: "8px",
+                            padding: "8px 10px",
+                            fontWeight: 800,
+                            cursor: "pointer",
+                            background: "#fff",
+                            color: "#2563eb",
+                          }}
+                        >
+                          EDIT
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            toggleSchedule(item)
+                          }
+                          style={{
+                            border: 0,
+                            borderRadius: "999px",
+                            padding: "8px 10px",
+                            fontWeight: 800,
+                            cursor: "pointer",
+                            background:
+                              item.enabled
+                                ? "#dcfce7"
+                                : "#eceff3",
+                          }}
+                        >
+                          {item.enabled ? "ON" : "OFF"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            deleteSchedule(item)
+                          }
+                          aria-label={`Delete ${item.time}`}
+                          style={{
+                            border: 0,
+                            background: "transparent",
+                            cursor: "pointer",
+                            padding: "7px",
+                          }}
+                        >
+                          <Trash2 size={20} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 ))
               )}
