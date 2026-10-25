@@ -15,12 +15,14 @@ export default function App() {
   const [schedules, setSchedules] = useState([]);
   const [medicines, setMedicines] = useState([]);
   const [selectedMedicineId, setSelectedMedicineId] = useState("");
+  const [selectedMedicineIds, setSelectedMedicineIds] = useState([]);
   const [newMedicineName, setNewMedicineName] = useState("");
   const [screen, setScreen] = useState("home");
   const [newTime, setNewTime] = useState("");
   const [scheduleMessage, setScheduleMessage] = useState("");
   const [editingScheduleId, setEditingScheduleId] = useState("");
   const [editingTime, setEditingTime] = useState("");
+  const [editingMedicineIds, setEditingMedicineIds] = useState([]);
   const [cabinetStatus, setCabinetStatus] = useState("-");
   const [lastOpened, setLastOpened] = useState("-");
   const [firebaseReady, setFirebaseReady] = useState(false);
@@ -59,6 +61,10 @@ export default function App() {
               id,
               medicine: item?.medicine || "Medicine",
               medicineId: item?.medicineId || "",
+              medicineIds: item?.medicineIds || null,
+              medicines: Array.isArray(item?.medicines)
+                ? item.medicines
+                : [],
               time: item?.time || "--:--",
               enabled: item?.enabled === true,
             }))
@@ -178,6 +184,31 @@ export default function App() {
     return () => clearInterval(timer);
   }, [schedules]);
 
+  const addSelectedMedicine = () => {
+    if (!selectedMedicineId) {
+      setScheduleMessage("กรุณาเลือกยา");
+      return;
+    }
+
+    if (selectedMedicineIds.includes(selectedMedicineId)) {
+      setScheduleMessage("ยานี้ถูกเพิ่มแล้ว");
+      return;
+    }
+
+    setSelectedMedicineIds((current) => [
+      ...current,
+      selectedMedicineId,
+    ]);
+
+    setScheduleMessage("");
+  };
+
+  const removeSelectedMedicine = (medicineId) => {
+    setSelectedMedicineIds((current) =>
+      current.filter((id) => id !== medicineId)
+    );
+  };
+
   const addSchedule = async () => {
     const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -202,28 +233,43 @@ export default function App() {
       return;
     }
 
-    const selectedMedicine =
-      medicines.find(
-        (item) => item.id === selectedMedicineId
+    const selectedMedicines =
+      medicines.filter(
+        (item) => selectedMedicineIds.includes(item.id)
       );
 
-    if (!selectedMedicine) {
-      setScheduleMessage("กรุณาเพิ่มและเลือกยาก่อน");
+    if (selectedMedicines.length === 0) {
+      setScheduleMessage("กรุณาเพิ่มยาอย่างน้อย 1 รายการ");
       return;
     }
+
+    const medicineNames =
+      selectedMedicines.map((item) => item.name);
+
+    const medicineIdsObject =
+      selectedMedicines.reduce(
+        (acc, item) => {
+          acc[item.id] = true;
+          return acc;
+        },
+        {}
+      );
 
     try {
       await set(
         ref(db, `smartMedicineCabinet/schedules/${newId}`),
         {
-          medicineId: selectedMedicine.id,
-          medicine: selectedMedicine.name,
+          medicineIds: medicineIdsObject,
+          medicines: medicineNames,
+          // เก็บ medicine เป็นข้อความรวม เพื่อให้ ESP32 โค้ดเดิมยังอ่านได้
+          medicine: medicineNames.join(", "),
           time: newTime,
           enabled: true,
         }
       );
 
       setNewTime("");
+      setSelectedMedicineIds([]);
       setScheduleMessage("เพิ่มเวลาเรียบร้อย");
     } catch (error) {
       console.error(error);
@@ -235,23 +281,47 @@ export default function App() {
     const name = newMedicineName.trim();
 
     if (!name) {
-      setScheduleMessage("กรุณาพิมพ์ชื่อยา");
+      setScheduleMessage("กรุณาเลือกหรือพิมพ์ชื่อยา");
       return;
     }
 
-    const duplicate =
-      medicines.some(
+    const existing =
+      medicines.find(
         (item) =>
           item.name.trim().toLowerCase()
           === name.toLowerCase()
       );
 
-    if (duplicate) {
-      setScheduleMessage("มียานี้อยู่ในรายการแล้ว");
+    // ถ้ามียานี้ใน Dropdown อยู่แล้ว
+    // ให้เพิ่มเข้า "ยาที่เลือกสำหรับเวลานี้"
+    if (existing) {
+      setSelectedMedicineId(existing.id);
+
+      setSelectedMedicineIds((current) => {
+        if (current.includes(existing.id)) {
+          return current;
+        }
+
+        return [
+          ...current,
+          existing.id,
+        ];
+      });
+
+      setScheduleMessage(
+        `เพิ่ม ${existing.name} ในรายการเวลานี้แล้ว`
+      );
+
+      setNewMedicineName("");
       return;
     }
 
-    const used = new Set(medicines.map((item) => item.id));
+    // ถ้ายังไม่มียานี้ ให้สร้างยาใหม่ใน Dropdown ก่อน
+    const used =
+      new Set(
+        medicines.map((item) => item.id)
+      );
+
     let newId = "";
 
     for (let i = 1; i <= 50; i += 1) {
@@ -265,19 +335,33 @@ export default function App() {
     }
 
     if (!newId) {
-      setScheduleMessage("เพิ่มยาได้สูงสุด 50 รายการ");
+      setScheduleMessage(
+        "เพิ่มยาได้สูงสุด 50 รายการ"
+      );
       return;
     }
 
     try {
       await set(
-        ref(db, `smartMedicineCabinet/medicines/${newId}`),
+        ref(
+          db,
+          `smartMedicineCabinet/medicines/${newId}`
+        ),
         { name }
       );
 
       setSelectedMedicineId(newId);
+
+      setSelectedMedicineIds((current) => [
+        ...current,
+        newId,
+      ]);
+
       setNewMedicineName("");
-      setScheduleMessage(`เพิ่มยา ${name} เรียบร้อย`);
+
+      setScheduleMessage(
+        `เพิ่มยา ${name} และเลือกไว้สำหรับเวลานี้แล้ว`
+      );
     } catch (error) {
       console.error(error);
       setScheduleMessage("เพิ่มยาไม่สำเร็จ");
@@ -296,14 +380,32 @@ export default function App() {
     }
 
     const usedBySchedule =
-      schedules.some(
-        (item) =>
-          item.medicineId === selected.id
-          || (
-            !item.medicineId
-            && item.medicine === selected.name
-          )
-      );
+      schedules.some((item) => {
+        if (item.medicineId === selected.id) {
+          return true;
+        }
+
+        if (
+          Array.isArray(item.medicineIds)
+          && item.medicineIds.includes(selected.id)
+        ) {
+          return true;
+        }
+
+        if (
+          item.medicineIds
+          && typeof item.medicineIds === "object"
+          && item.medicineIds[selected.id]
+        ) {
+          return true;
+        }
+
+        return (
+          !item.medicineId
+          && !item.medicineIds
+          && item.medicine === selected.name
+        );
+      });
 
     if (usedBySchedule) {
       setScheduleMessage(
@@ -329,19 +431,83 @@ export default function App() {
     }
   };
 
+  const getMedicineIdsForSchedule = (item) => {
+    if (
+      item.medicineIds
+      && typeof item.medicineIds === "object"
+      && !Array.isArray(item.medicineIds)
+    ) {
+      return Object.keys(item.medicineIds)
+        .filter((id) => item.medicineIds[id]);
+    }
+
+    if (Array.isArray(item.medicineIds)) {
+      return item.medicineIds;
+    }
+
+    if (item.medicineId) {
+      return [item.medicineId];
+    }
+
+    if (Array.isArray(item.medicines)) {
+      return medicines
+        .filter((medicine) =>
+          item.medicines.includes(medicine.name)
+        )
+        .map((medicine) => medicine.id);
+    }
+
+    return medicines
+      .filter((medicine) =>
+        item.medicine
+          ?.split(",")
+          .map((name) => name.trim())
+          .includes(medicine.name)
+      )
+      .map((medicine) => medicine.id);
+  };
+
   const startEditSchedule = (item) => {
     setEditingScheduleId(item.id);
     setEditingTime(item.time);
+    setEditingMedicineIds(
+      getMedicineIdsForSchedule(item)
+    );
     setScheduleMessage("");
   };
 
   const cancelEditSchedule = () => {
     setEditingScheduleId("");
     setEditingTime("");
+    setEditingMedicineIds([]);
+  };
+
+  const addMedicineToEdit = (medicineId) => {
+    if (!medicineId) {
+      return;
+    }
+
+    setEditingMedicineIds((current) => {
+      if (current.includes(medicineId)) {
+        return current;
+      }
+
+      return [
+        ...current,
+        medicineId,
+      ];
+    });
+  };
+
+  const removeMedicineFromEdit = (medicineId) => {
+    setEditingMedicineIds((current) =>
+      current.filter((id) => id !== medicineId)
+    );
   };
 
   const saveEditSchedule = async (item) => {
-    const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+    const timeRegex =
+      /^([01]\d|2[0-3]):([0-5]\d)$/;
 
     if (!timeRegex.test(editingTime)) {
       setScheduleMessage(
@@ -349,6 +515,34 @@ export default function App() {
       );
       return;
     }
+
+    if (editingMedicineIds.length === 0) {
+      setScheduleMessage(
+        "กรุณาเลือกยาอย่างน้อย 1 รายการ"
+      );
+      return;
+    }
+
+    const selectedMedicines =
+      medicines.filter((medicine) =>
+        editingMedicineIds.includes(
+          medicine.id
+        )
+      );
+
+    const medicineNames =
+      selectedMedicines.map(
+        (medicine) => medicine.name
+      );
+
+    const medicineIdsObject =
+      selectedMedicines.reduce(
+        (acc, medicine) => {
+          acc[medicine.id] = true;
+          return acc;
+        },
+        {}
+      );
 
     try {
       await update(
@@ -358,17 +552,28 @@ export default function App() {
         ),
         {
           time: editingTime,
+          medicineIds: medicineIdsObject,
+          medicines: medicineNames,
+          medicine: medicineNames.join(", "),
+          medicineId:
+            selectedMedicines.length === 1
+              ? selectedMedicines[0].id
+              : "",
         }
       );
 
       setEditingScheduleId("");
       setEditingTime("");
+      setEditingMedicineIds([]);
+
       setScheduleMessage(
-        `แก้เวลาเป็น ${editingTime} เรียบร้อย`
+        "แก้ไขยาและเวลาเรียบร้อย"
       );
     } catch (error) {
       console.error(error);
-      setScheduleMessage("แก้เวลาไม่สำเร็จ");
+      setScheduleMessage(
+        "แก้ไขรายการไม่สำเร็จ"
+      );
     }
   };
 
@@ -507,7 +712,9 @@ export default function App() {
                               lineHeight: "1.4",
                             }}
                           >
-                            {item.medicine} - {item.time}
+                            {(item.medicines?.length
+                              ? item.medicines.join(" + ")
+                              : item.medicine)} - {item.time}
                           </div>
                         ))}
 
@@ -603,15 +810,26 @@ export default function App() {
                     display: "flex",
                     gap: "8px",
                     marginBottom: "10px",
+                    flexWrap: "wrap",
                   }}
                 >
                   <select
                     value={selectedMedicineId}
-                    onChange={(e) =>
-                      setSelectedMedicineId(e.target.value)
-                    }
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setSelectedMedicineId(id);
+
+                      const selected =
+                        medicines.find(
+                          (item) => item.id === id
+                        );
+
+                      setNewMedicineName(
+                        selected?.name || ""
+                      );
+                    }}
                     style={{
-                      flex: 1,
+                      flex: "1 1 160px",
                       minWidth: 0,
                       padding: "11px 12px",
                       border: "1px solid #d7dce3",
@@ -638,9 +856,29 @@ export default function App() {
 
                   <button
                     type="button"
+                    onClick={addSelectedMedicine}
+                    disabled={!selectedMedicineId}
+                    style={{
+                      border: 0,
+                      borderRadius: "10px",
+                      padding: "10px 12px",
+                      fontWeight: 800,
+                      background: "#20b85a",
+                      color: "#fff",
+                      cursor: selectedMedicineId
+                        ? "pointer"
+                        : "not-allowed",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    + เพิ่มยานี้
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={deleteMedicine}
                     disabled={!selectedMedicineId}
-                    title="ลบยาที่เลือก"
+                    title="ลบยานี้ออกจาก Dropdown"
                     style={{
                       border: "1px solid #ef4444",
                       borderRadius: "10px",
@@ -656,6 +894,64 @@ export default function App() {
                   </button>
                 </div>
 
+                {selectedMedicineIds.length > 0 && (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: "7px",
+                      marginBottom: "12px",
+                    }}
+                  >
+                    {selectedMedicineIds.map((id) => {
+                      const medicine =
+                        medicines.find(
+                          (item) => item.id === id
+                        );
+
+                      if (!medicine) {
+                        return null;
+                      }
+
+                      return (
+                        <div
+                          key={id}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            padding: "7px 9px",
+                            borderRadius: "999px",
+                            background: "#e8f5ec",
+                            fontSize: "13px",
+                            fontWeight: 700,
+                          }}
+                        >
+                          <span>{medicine.name}</span>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              removeSelectedMedicine(id)
+                            }
+                            aria-label={`เอา ${medicine.name} ออกจากรายการ`}
+                            style={{
+                              border: 0,
+                              background: "transparent",
+                              cursor: "pointer",
+                              padding: 0,
+                              fontSize: "16px",
+                              lineHeight: 1,
+                            }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
                 <div
                   style={{
                     display: "flex",
@@ -668,7 +964,7 @@ export default function App() {
                     onChange={(e) =>
                       setNewMedicineName(e.target.value)
                     }
-                    placeholder="พิมพ์ชื่อยาใหม่"
+                    placeholder="เลือกจาก Dropdown หรือพิมพ์ชื่อยา"
                     style={{
                       flex: 1,
                       minWidth: 0,
@@ -683,6 +979,7 @@ export default function App() {
                     type="button"
                     onClick={addMedicine}
                     disabled={!firebaseReady}
+                    title="เพิ่มยานี้ในรายการของเวลาที่กำลังตั้ง"
                     style={{
                       border: 0,
                       borderRadius: "10px",
@@ -783,58 +1080,171 @@ export default function App() {
                       className="info-text"
                       style={{
                         flex: 1,
-                        minWidth: "120px",
+                        minWidth: "160px",
                       }}
                     >
-                      <div className="info-label">
-                        {item.medicine}
-                      </div>
-
                       {editingScheduleId === item.id ? (
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          maxLength={5}
-                          value={editingTime}
-                          onChange={(e) => {
-                            let value =
-                              e.target.value.replace(
-                                /[^0-9:]/g,
-                                ""
+                        <>
+                          <div
+                            className="info-label"
+                            style={{ marginBottom: "7px" }}
+                          >
+                            แก้ไขยา
+                          </div>
+
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: "7px",
+                              flexWrap: "wrap",
+                              marginBottom: "8px",
+                            }}
+                          >
+                            {editingMedicineIds.map((id) => {
+                              const medicine =
+                                medicines.find(
+                                  (m) => m.id === id
+                                );
+
+                              if (!medicine) {
+                                return null;
+                              }
+
+                              return (
+                                <div
+                                  key={id}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "5px",
+                                    padding: "6px 8px",
+                                    borderRadius: "999px",
+                                    background: "#e8f5ec",
+                                    fontSize: "13px",
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  <span>{medicine.name}</span>
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      removeMedicineFromEdit(id)
+                                    }
+                                    style={{
+                                      border: 0,
+                                      background: "transparent",
+                                      cursor: "pointer",
+                                      padding: 0,
+                                      fontSize: "16px",
+                                      lineHeight: 1,
+                                    }}
+                                    aria-label={`เอา ${medicine.name} ออกจากรายการ`}
+                                  >
+                                    ×
+                                  </button>
+                                </div>
                               );
+                            })}
+                          </div>
 
-                            if (
-                              value.length === 2
-                              &&
-                              !value.includes(":")
-                              &&
-                              editingTime.length
-                                < value.length
-                            ) {
-                              value += ":";
-                            }
+                          <select
+                            value=""
+                            onChange={(e) => {
+                              addMedicineToEdit(
+                                e.target.value
+                              );
+                              e.target.value = "";
+                            }}
+                            style={{
+                              width: "100%",
+                              boxSizing: "border-box",
+                              padding: "8px 10px",
+                              marginBottom: "8px",
+                              border: "1px solid #d7dce3",
+                              borderRadius: "8px",
+                              background: "#fff",
+                            }}
+                          >
+                            <option value="">
+                              + เพิ่มยาในรายการนี้
+                            </option>
 
-                            setEditingTime(
-                              value.slice(0, 5)
-                            );
-                          }}
-                          placeholder="HH:MM"
-                          autoFocus
-                          style={{
-                            marginTop: "4px",
-                            width: "92px",
-                            boxSizing: "border-box",
-                            padding: "7px 8px",
-                            border: "1px solid #cfd5dc",
-                            borderRadius: "8px",
-                            fontSize: "16px",
-                            fontWeight: 700,
-                          }}
-                        />
+                            {medicines
+                              .filter(
+                                (medicine) =>
+                                  !editingMedicineIds.includes(
+                                    medicine.id
+                                  )
+                              )
+                              .map((medicine) => (
+                                <option
+                                  key={medicine.id}
+                                  value={medicine.id}
+                                >
+                                  {medicine.name}
+                                </option>
+                              ))}
+                          </select>
+
+                          <div
+                            className="info-label"
+                            style={{ marginBottom: "4px" }}
+                          >
+                            แก้ไขเวลา
+                          </div>
+
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            maxLength={5}
+                            value={editingTime}
+                            onChange={(e) => {
+                              let value =
+                                e.target.value.replace(
+                                  /[^0-9:]/g,
+                                  ""
+                                );
+
+                              if (
+                                value.length === 2
+                                &&
+                                !value.includes(":")
+                                &&
+                                editingTime.length
+                                  < value.length
+                              ) {
+                                value += ":";
+                              }
+
+                              setEditingTime(
+                                value.slice(0, 5)
+                              );
+                            }}
+                            placeholder="HH:MM"
+                            style={{
+                              width: "100px",
+                              boxSizing: "border-box",
+                              padding: "7px 8px",
+                              border: "1px solid #cfd5dc",
+                              borderRadius: "8px",
+                              fontSize: "16px",
+                              fontWeight: 700,
+                            }}
+                          />
+                        </>
                       ) : (
-                        <div className="info-value">
-                          {item.time}
-                        </div>
+                        <>
+                          <div className="info-label">
+                            {item.medicines?.length
+                              ? item.medicines.join(" + ")
+                              : item.medicine}
+                          </div>
+
+                          <div className="info-value">
+                            {item.time}
+                          </div>
+                        </>
                       )}
                     </div>
 
