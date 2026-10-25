@@ -735,7 +735,7 @@ export default function App() {
                           fontWeight: 700,
                         }}
                       >
-                        ยา :
+                        รายการยา
                       </div>
 
                       {nextScheduleMedicines
