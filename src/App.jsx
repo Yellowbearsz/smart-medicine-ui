@@ -627,6 +627,23 @@ export default function App() {
   const upcomingDoses =
     getUpcomingDoses(schedules);
 
+  const nextSchedule =
+    upcomingDoses.length > 0
+      ? upcomingDoses[0]
+      : null;
+
+  const nextScheduleMedicines =
+    nextSchedule
+      ? (
+          nextSchedule.medicines?.length
+            ? nextSchedule.medicines
+            : (nextSchedule.medicine || "")
+                .split(",")
+                .map((name) => name.trim())
+                .filter(Boolean)
+        )
+      : [];
+
   return (
     <main className="page">
       <section className="phone-panel">
@@ -694,40 +711,61 @@ export default function App() {
                     Next Dose
                   </div>
 
-                  {upcomingDoses.length === 0 ? (
+                  {!nextSchedule ? (
                     <div className="info-value">
                       ยังไม่มีรายการยา
                     </div>
                   ) : (
                     <>
-                      {upcomingDoses
+                      <div
+                        style={{
+                          marginTop: "4px",
+                          fontSize: "15px",
+                          fontWeight: 800,
+                          lineHeight: "1.4",
+                        }}
+                      >
+                        เวลาที่ตั้ง : {nextSchedule.time}
+                      </div>
+
+                      <div
+                        style={{
+                          marginTop: "6px",
+                          fontSize: "14px",
+                          fontWeight: 700,
+                        }}
+                      >
+                        ยา :
+                      </div>
+
+                      {nextScheduleMedicines
                         .slice(0, 2)
-                        .map((item) => (
+                        .map((medicine, index) => (
                           <div
-                            key={item.id}
+                            key={`${medicine}-${index}`}
                             style={{
-                              marginTop: "4px",
-                              fontSize: "15px",
-                              fontWeight: 700,
+                              marginTop: "2px",
+                              paddingLeft: "18px",
+                              fontSize: "14px",
+                              fontWeight: 600,
                               lineHeight: "1.4",
                             }}
                           >
-                            {(item.medicines?.length
-                              ? item.medicines.join(" + ")
-                              : item.medicine)} - {item.time}
+                            {index + 1}. {medicine}
                           </div>
                         ))}
 
-                      {upcomingDoses.length > 2 && (
+                      {nextScheduleMedicines.length > 2 && (
                         <div
                           style={{
-                            marginTop: "6px",
+                            marginTop: "4px",
+                            paddingLeft: "18px",
                             fontSize: "13px",
                             color: "#6b7280",
                             fontWeight: 600,
                           }}
                         >
-                          + อีก {upcomingDoses.length - 2} รายการ
+                          อีก {nextScheduleMedicines.length - 2} รายการ
                         </div>
                       )}
                     </>
