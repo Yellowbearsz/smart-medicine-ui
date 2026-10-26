@@ -1031,7 +1031,15 @@ export default function App() {
             )}
           </div>
         ) : (
-          <div style={{ marginTop: "22px" }}>
+          <div
+            style={{
+              marginTop: "22px",
+              display: "flex",
+              flexDirection: "column",
+              height: "570px",
+              minHeight: 0,
+            }}
+          >
             <button
               type="button"
               onClick={() => setScreen("medicineList")}
@@ -1329,7 +1337,20 @@ export default function App() {
               )}
             </div>
 
-            <div style={{ marginTop: "14px", display: "grid", gap: "10px" }}>
+            <div
+              style={{
+                marginTop: "14px",
+                display: "grid",
+                gap: "10px",
+                flex: 1,
+                minHeight: 0,
+                overflowY: "auto",
+                overflowX: "hidden",
+                paddingRight: "4px",
+                paddingBottom: "4px",
+                alignContent: "start",
+              }}
+            >
               {schedules.length === 0 ? (
                 <div className="info-card">
                   <div className="info-text">
