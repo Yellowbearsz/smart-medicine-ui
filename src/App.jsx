@@ -283,80 +283,64 @@ export default function App() {
     const name = newMedicineName.trim();
 
     if (!name) {
-      setScheduleMessage(
-        "กรุณาพิมพ์ชื่อยา"
-      );
+      setScheduleMessage("กรุณาพิมพ์ชื่อยา");
       return;
     }
 
-    // เช็กชื่อซ้ำแบบไม่สนตัวพิมพ์เล็ก/ใหญ่
-    // และตัดช่องว่างหัวท้ายก่อนเปรียบเทียบ
+    // เช็กชื่อซ้ำก่อน
     const existing =
       medicines.find(
         (item) =>
-          item.name
-            .trim()
-            .toLowerCase()
-          ===
-          name
-            .trim()
-            .toLowerCase()
+          item.name.trim().toLowerCase()
+          === name.toLowerCase()
       );
 
-    // ถ้ามีอยู่แล้วใน Dropdown
-    // ไม่สร้างรายการใหม่ซ้ำ
-    // แต่เลือกยาตัวเดิมให้ทันที
     if (existing) {
-      setSelectedMedicineId(
-        existing.id
-      );
+      setSelectedMedicineId(existing.id);
 
-      setSelectedMedicineIds(
-        (current) => {
-          if (
-            current.includes(
-              existing.id
-            )
-          ) {
-            return current;
-          }
-
-          return [
-            ...current,
-            existing.id,
-          ];
+      setSelectedMedicineIds((current) => {
+        if (current.includes(existing.id)) {
+          return current;
         }
-      );
+
+        return [
+          ...current,
+          existing.id,
+        ];
+      });
 
       setNewMedicineName("");
-
       setScheduleMessage(
-        `${existing.name} มีอยู่แล้ว และถูกเลือกให้แล้ว`
+        `${existing.name} มีอยู่แล้ว จึงใช้รายการเดิม`
       );
-
       return;
     }
 
-    // หา ID ใหม่
+    // ถ้า Firebase Auth ยังไม่พร้อม
+    // ให้ลอง sign in ใหม่ตอนกดเพิ่มยา
+    try {
+      if (!auth.currentUser) {
+        await signInAnonymously(auth);
+        setFirebaseReady(true);
+      }
+    } catch (error) {
+      console.error("Firebase auth error:", error);
+      setScheduleMessage(
+        "เชื่อมต่อ Firebase ไม่สำเร็จ กรุณาตรวจอินเทอร์เน็ต"
+      );
+      return;
+    }
+
     const used =
       new Set(
-        medicines.map(
-          (item) => item.id
-        )
+        medicines.map((item) => item.id)
       );
 
     let newId = "";
 
-    for (
-      let i = 1;
-      i <= 50;
-      i += 1
-    ) {
+    for (let i = 1; i <= 50; i += 1) {
       const candidate =
-        `medicine${String(i).padStart(
-          3,
-          "0"
-        )}`;
+        `medicine${String(i).padStart(3, "0")}`;
 
       if (!used.has(candidate)) {
         newId = candidate;
@@ -372,51 +356,66 @@ export default function App() {
     }
 
     try {
-      // เพิ่มยาใหม่เข้า Firebase
-      // รายการนี้จะเข้า Dropdown อัตโนมัติ
       await set(
         ref(
           db,
           `smartMedicineCabinet/medicines/${newId}`
         ),
         {
-          name: name,
+          name,
         }
       );
 
-      // เลือกยาใหม่ไว้ใน Dropdown
-      setSelectedMedicineId(
-        newId
-      );
+      // อัปเดต Dropdown ทันที
+      // ไม่ต้องรอ onValue ส่งค่ากลับมา
+      setMedicines((current) => {
+        const alreadyExists =
+          current.some(
+            (item) => item.id === newId
+          );
 
-      // เพิ่มยาใหม่เข้า "รายการยาของเวลานี้"
-      // และป้องกัน ID ซ้ำ
-      setSelectedMedicineIds(
-        (current) => {
-          if (
-            current.includes(newId)
-          ) {
-            return current;
-          }
-
-          return [
-            ...current,
-            newId,
-          ];
+        if (alreadyExists) {
+          return current;
         }
-      );
+
+        return [
+          ...current,
+          {
+            id: newId,
+            name,
+          },
+        ].sort(
+          (a, b) =>
+            a.name.localeCompare(
+              b.name,
+              "th"
+            )
+        );
+      });
+
+      setSelectedMedicineId(newId);
+
+      setSelectedMedicineIds((current) => {
+        if (current.includes(newId)) {
+          return current;
+        }
+
+        return [
+          ...current,
+          newId,
+        ];
+      });
 
       setNewMedicineName("");
 
       setScheduleMessage(
         `เพิ่มยา ${name} เรียบร้อย`
       );
-
     } catch (error) {
-      console.error(error);
+      console.error("Add medicine error:", error);
 
       setScheduleMessage(
-        "เพิ่มยาไม่สำเร็จ"
+        `เพิ่มยาไม่สำเร็จ: ${error?.message || "Firebase error"}`
       );
     }
   };
@@ -1253,8 +1252,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={addMedicine}
-                    disabled={!firebaseReady}
-                    title="เพิ่มยานี้ในรายการของเวลาที่กำลังตั้ง"
+                    title="เพิ่มยาเข้า Dropdown และรายการของเวลานี้"
                     style={{
                       border: 0,
                       borderRadius: "10px",
