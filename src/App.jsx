@@ -679,6 +679,25 @@ export default function App() {
   const upcomingDoses =
     getUpcomingDoses(schedules);
 
+  // หน้าแรกแสดงเฉพาะ "เวลาถัดไป" เพียง 1 เวลา
+  const nextSchedule =
+    upcomingDoses.length > 0
+      ? upcomingDoses[0]
+      : null;
+
+  // รายการยาของเวลาถัดไป
+  const nextScheduleMedicines =
+    nextSchedule
+      ? (
+          nextSchedule.medicines?.length
+            ? nextSchedule.medicines
+            : (nextSchedule.medicine || "")
+                .split(",")
+                .map((name) => name.trim())
+                .filter(Boolean)
+        )
+      : [];
+
   return (
     <main className="page">
       <section className="phone-panel">
@@ -746,40 +765,61 @@ export default function App() {
                     Next Dose
                   </div>
 
-                  {upcomingDoses.length === 0 ? (
+                  {!nextSchedule ? (
                     <div className="info-value">
                       ยังไม่มีรายการยา
                     </div>
                   ) : (
                     <>
-                      {upcomingDoses
+                      <div
+                        style={{
+                          marginTop: "4px",
+                          fontSize: "15px",
+                          fontWeight: 800,
+                          lineHeight: "1.4",
+                        }}
+                      >
+                        เวลาที่ตั้ง : {nextSchedule.time}
+                      </div>
+
+                      <div
+                        style={{
+                          marginTop: "6px",
+                          fontSize: "14px",
+                          fontWeight: 700,
+                        }}
+                      >
+                        รายการยา
+                      </div>
+
+                      {nextScheduleMedicines
                         .slice(0, 2)
-                        .map((item) => (
+                        .map((medicine, index) => (
                           <div
-                            key={item.id}
+                            key={`${medicine}-${index}`}
                             style={{
-                              marginTop: "4px",
-                              fontSize: "15px",
-                              fontWeight: 700,
+                              marginTop: "2px",
+                              paddingLeft: "18px",
+                              fontSize: "14px",
+                              fontWeight: 600,
                               lineHeight: "1.4",
                             }}
                           >
-                            {(item.medicines?.length
-                              ? item.medicines.join(" + ")
-                              : item.medicine)} - {item.time}
+                            {index + 1}. {medicine}
                           </div>
                         ))}
 
-                      {upcomingDoses.length > 2 && (
+                      {nextScheduleMedicines.length > 2 && (
                         <div
                           style={{
-                            marginTop: "6px",
+                            marginTop: "4px",
+                            paddingLeft: "18px",
                             fontSize: "13px",
                             color: "#6b7280",
                             fontWeight: 600,
                           }}
                         >
-                          + อีก {upcomingDoses.length - 2} รายการ
+                          อีก {nextScheduleMedicines.length - 2} รายการ
                         </div>
                       )}
                     </>
@@ -1365,8 +1405,8 @@ export default function App() {
                     style={{
                       opacity: item.enabled ? 1 : 0.55,
                       alignItems: "center",
-                      gap: "8px",
-                      flexWrap: "wrap",
+                      gap: "10px",
+                      flexWrap: "nowrap",
                     }}
                   >
                     <div className="info-icon green">
@@ -1377,7 +1417,7 @@ export default function App() {
                       className="info-text"
                       style={{
                         flex: 1,
-                        minWidth: "160px",
+                        minWidth: 0,
                       }}
                     >
                       {editingScheduleId === item.id ? (
@@ -1581,7 +1621,15 @@ export default function App() {
                         </button>
                       </>
                     ) : (
-                      <>
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          gap: "7px",
+                          flexShrink: 0,
+                        }}
+                      >
                         <button
                           type="button"
                           onClick={() =>
@@ -1595,47 +1643,56 @@ export default function App() {
                             cursor: "pointer",
                             background: "#fff",
                             color: "#2563eb",
+                            minWidth: "58px",
                           }}
                         >
                           EDIT
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            toggleSchedule(item)
-                          }
+                        <div
                           style={{
-                            border: 0,
-                            borderRadius: "999px",
-                            padding: "8px 10px",
-                            fontWeight: 800,
-                            cursor: "pointer",
-                            background:
-                              item.enabled
-                                ? "#dcfce7"
-                                : "#eceff3",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
                           }}
                         >
-                          {item.enabled ? "ON" : "OFF"}
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              toggleSchedule(item)
+                            }
+                            style={{
+                              border: 0,
+                              borderRadius: "999px",
+                              padding: "7px 10px",
+                              fontWeight: 800,
+                              cursor: "pointer",
+                              background:
+                                item.enabled
+                                  ? "#dcfce7"
+                                  : "#eceff3",
+                            }}
+                          >
+                            {item.enabled ? "ON" : "OFF"}
+                          </button>
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            deleteSchedule(item)
-                          }
-                          aria-label={`Delete ${item.time}`}
-                          style={{
-                            border: 0,
-                            background: "transparent",
-                            cursor: "pointer",
-                            padding: "7px",
-                          }}
-                        >
-                          <Trash2 size={20} />
-                        </button>
-                      </>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              deleteSchedule(item)
+                            }
+                            aria-label={`Delete ${item.time}`}
+                            style={{
+                              border: 0,
+                              background: "transparent",
+                              cursor: "pointer",
+                              padding: "5px",
+                            }}
+                          >
+                            <Trash2 size={19} />
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 ))
