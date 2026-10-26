@@ -818,7 +818,7 @@ export default function App() {
             >
               <button
                 type="button"
-                onClick={() => setScreen("medicineList")}
+                onClick={() => setScreen("home")}
                 style={{
                   border: 0,
                   background: "transparent",
@@ -831,7 +831,7 @@ export default function App() {
                 }}
               >
                 <ArrowLeft size={20} />
-                กลับรายการยา
+                กลับหน้าหลัก
               </button>
 
               <button
@@ -1034,7 +1034,7 @@ export default function App() {
           <div style={{ marginTop: "22px" }}>
             <button
               type="button"
-              onClick={() => setScreen("home")}
+              onClick={() => setScreen("medicineList")}
               style={{
                 border: 0,
                 background: "transparent",
@@ -1047,7 +1047,7 @@ export default function App() {
               }}
             >
               <ArrowLeft size={20} />
-              กลับหน้าหลัก
+              กลับรายการยา
             </button>
 
             <div
