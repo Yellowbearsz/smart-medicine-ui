@@ -186,7 +186,9 @@ export default function App() {
 
   const addSelectedMedicine = () => {
     if (!selectedMedicineId) {
-      setScheduleMessage("กรุณาเลือกยา");
+      setScheduleMessage(
+        "ยังไม่มียาใน Dropdown กรุณาพิมพ์ชื่อยาใหม่แล้วกด + เพิ่มยา ก่อน"
+      );
       return;
     }
 
@@ -281,52 +283,80 @@ export default function App() {
     const name = newMedicineName.trim();
 
     if (!name) {
-      setScheduleMessage("กรุณาเลือกหรือพิมพ์ชื่อยา");
+      setScheduleMessage(
+        "กรุณาพิมพ์ชื่อยา"
+      );
       return;
     }
 
+    // เช็กชื่อซ้ำแบบไม่สนตัวพิมพ์เล็ก/ใหญ่
+    // และตัดช่องว่างหัวท้ายก่อนเปรียบเทียบ
     const existing =
       medicines.find(
         (item) =>
-          item.name.trim().toLowerCase()
-          === name.toLowerCase()
+          item.name
+            .trim()
+            .toLowerCase()
+          ===
+          name
+            .trim()
+            .toLowerCase()
       );
 
-    // ถ้ามียานี้ใน Dropdown อยู่แล้ว
-    // ให้เพิ่มเข้า "ยาที่เลือกสำหรับเวลานี้"
+    // ถ้ามีอยู่แล้วใน Dropdown
+    // ไม่สร้างรายการใหม่ซ้ำ
+    // แต่เลือกยาตัวเดิมให้ทันที
     if (existing) {
-      setSelectedMedicineId(existing.id);
+      setSelectedMedicineId(
+        existing.id
+      );
 
-      setSelectedMedicineIds((current) => {
-        if (current.includes(existing.id)) {
-          return current;
+      setSelectedMedicineIds(
+        (current) => {
+          if (
+            current.includes(
+              existing.id
+            )
+          ) {
+            return current;
+          }
+
+          return [
+            ...current,
+            existing.id,
+          ];
         }
-
-        return [
-          ...current,
-          existing.id,
-        ];
-      });
-
-      setScheduleMessage(
-        `เพิ่ม ${existing.name} ในรายการเวลานี้แล้ว`
       );
 
       setNewMedicineName("");
+
+      setScheduleMessage(
+        `${existing.name} มีอยู่แล้ว และถูกเลือกให้แล้ว`
+      );
+
       return;
     }
 
-    // ถ้ายังไม่มียานี้ ให้สร้างยาใหม่ใน Dropdown ก่อน
+    // หา ID ใหม่
     const used =
       new Set(
-        medicines.map((item) => item.id)
+        medicines.map(
+          (item) => item.id
+        )
       );
 
     let newId = "";
 
-    for (let i = 1; i <= 50; i += 1) {
+    for (
+      let i = 1;
+      i <= 50;
+      i += 1
+    ) {
       const candidate =
-        `medicine${String(i).padStart(3, "0")}`;
+        `medicine${String(i).padStart(
+          3,
+          "0"
+        )}`;
 
       if (!used.has(candidate)) {
         newId = candidate;
@@ -342,29 +372,52 @@ export default function App() {
     }
 
     try {
+      // เพิ่มยาใหม่เข้า Firebase
+      // รายการนี้จะเข้า Dropdown อัตโนมัติ
       await set(
         ref(
           db,
           `smartMedicineCabinet/medicines/${newId}`
         ),
-        { name }
+        {
+          name: name,
+        }
       );
 
-      setSelectedMedicineId(newId);
+      // เลือกยาใหม่ไว้ใน Dropdown
+      setSelectedMedicineId(
+        newId
+      );
 
-      setSelectedMedicineIds((current) => [
-        ...current,
-        newId,
-      ]);
+      // เพิ่มยาใหม่เข้า "รายการยาของเวลานี้"
+      // และป้องกัน ID ซ้ำ
+      setSelectedMedicineIds(
+        (current) => {
+          if (
+            current.includes(newId)
+          ) {
+            return current;
+          }
+
+          return [
+            ...current,
+            newId,
+          ];
+        }
+      );
 
       setNewMedicineName("");
 
       setScheduleMessage(
-        `เพิ่มยา ${name} และเลือกไว้สำหรับเวลานี้แล้ว`
+        `เพิ่มยา ${name} เรียบร้อย`
       );
+
     } catch (error) {
       console.error(error);
-      setScheduleMessage("เพิ่มยาไม่สำเร็จ");
+
+      setScheduleMessage(
+        "เพิ่มยาไม่สำเร็จ"
+      );
     }
   };
 
@@ -1082,7 +1135,6 @@ export default function App() {
                   <button
                     type="button"
                     onClick={addSelectedMedicine}
-                    disabled={!selectedMedicineId}
                     style={{
                       border: 0,
                       borderRadius: "10px",
@@ -1090,9 +1142,7 @@ export default function App() {
                       fontWeight: 800,
                       background: "#20b85a",
                       color: "#fff",
-                      cursor: selectedMedicineId
-                        ? "pointer"
-                        : "not-allowed",
+                      cursor: "pointer",
                       whiteSpace: "nowrap",
                     }}
                   >
