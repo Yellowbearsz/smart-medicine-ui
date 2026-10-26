@@ -1094,6 +1094,7 @@ export default function App() {
                     value={selectedMedicineId}
                     onChange={(e) => {
                       const id = e.target.value;
+
                       setSelectedMedicineId(id);
 
                       const selected =
@@ -1104,6 +1105,23 @@ export default function App() {
                       setNewMedicineName(
                         selected?.name || ""
                       );
+
+                      if (id) {
+                        setSelectedMedicineIds(
+                          (current) => {
+                            if (
+                              current.includes(id)
+                            ) {
+                              return current;
+                            }
+
+                            return [
+                              ...current,
+                              id,
+                            ];
+                          }
+                        );
+                      }
                     }}
                     style={{
                       flex: "1 1 160px",
@@ -1131,22 +1149,7 @@ export default function App() {
                     )}
                   </select>
 
-                  <button
-                    type="button"
-                    onClick={addSelectedMedicine}
-                    style={{
-                      border: 0,
-                      borderRadius: "10px",
-                      padding: "10px 12px",
-                      fontWeight: 800,
-                      background: "#20b85a",
-                      color: "#fff",
-                      cursor: "pointer",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    + เพิ่มยานี้
-                  </button>
+
 
                   <button
                     type="button"
@@ -1238,7 +1241,7 @@ export default function App() {
                     onChange={(e) =>
                       setNewMedicineName(e.target.value)
                     }
-                    placeholder="เลือกจาก Dropdown หรือพิมพ์ชื่อยา"
+                    placeholder="พิมพ์ชื่อยาใหม่"
                     style={{
                       flex: 1,
                       minWidth: 0,
