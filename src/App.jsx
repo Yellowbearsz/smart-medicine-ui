@@ -627,23 +627,6 @@ export default function App() {
   const upcomingDoses =
     getUpcomingDoses(schedules);
 
-  const nextSchedule =
-    upcomingDoses.length > 0
-      ? upcomingDoses[0]
-      : null;
-
-  const nextScheduleMedicines =
-    nextSchedule
-      ? (
-          nextSchedule.medicines?.length
-            ? nextSchedule.medicines
-            : (nextSchedule.medicine || "")
-                .split(",")
-                .map((name) => name.trim())
-                .filter(Boolean)
-        )
-      : [];
-
   return (
     <main className="page">
       <section className="phone-panel">
@@ -690,7 +673,7 @@ export default function App() {
               <button
                 type="button"
                 className="info-card"
-                onClick={() => setScreen("schedules")}
+                onClick={() => setScreen("medicineList")}
                 style={{
                   width: "100%",
                   textAlign: "left",
@@ -711,61 +694,40 @@ export default function App() {
                     Next Dose
                   </div>
 
-                  {!nextSchedule ? (
+                  {upcomingDoses.length === 0 ? (
                     <div className="info-value">
                       ยังไม่มีรายการยา
                     </div>
                   ) : (
                     <>
-                      <div
-                        style={{
-                          marginTop: "4px",
-                          fontSize: "15px",
-                          fontWeight: 800,
-                          lineHeight: "1.4",
-                        }}
-                      >
-                        เวลาที่ตั้ง : {nextSchedule.time}
-                      </div>
-
-                      <div
-                        style={{
-                          marginTop: "6px",
-                          fontSize: "14px",
-                          fontWeight: 700,
-                        }}
-                      >
-                        รายการยา
-                      </div>
-
-                      {nextScheduleMedicines
+                      {upcomingDoses
                         .slice(0, 2)
-                        .map((medicine, index) => (
+                        .map((item) => (
                           <div
-                            key={`${medicine}-${index}`}
+                            key={item.id}
                             style={{
-                              marginTop: "2px",
-                              paddingLeft: "18px",
-                              fontSize: "14px",
-                              fontWeight: 600,
+                              marginTop: "4px",
+                              fontSize: "15px",
+                              fontWeight: 700,
                               lineHeight: "1.4",
                             }}
                           >
-                            {index + 1}. {medicine}
+                            {(item.medicines?.length
+                              ? item.medicines.join(" + ")
+                              : item.medicine)} - {item.time}
                           </div>
                         ))}
 
-                      {nextScheduleMedicines.length > 2 && (
+                      {upcomingDoses.length > 2 && (
                         <div
                           style={{
-                            marginTop: "4px",
-                            paddingLeft: "18px",
+                            marginTop: "6px",
                             fontSize: "13px",
                             color: "#6b7280",
                             fontWeight: 600,
                           }}
                         >
-                          อีก {nextScheduleMedicines.length - 2} รายการ
+                          + อีก {upcomingDoses.length - 2} รายการ
                         </div>
                       )}
                     </>
@@ -791,6 +753,231 @@ export default function App() {
               />
             </div>
           </>
+        ) : screen === "medicineList" ? (
+          <div style={{ marginTop: "22px" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "10px",
+                marginBottom: "16px",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setScreen("medicineList")}
+                style={{
+                  border: 0,
+                  background: "transparent",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              >
+                <ArrowLeft size={20} />
+                กลับรายการยา
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setScreen("schedules")}
+                style={{
+                  border: 0,
+                  borderRadius: "10px",
+                  padding: "9px 12px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  fontWeight: 800,
+                  background: "#2563eb",
+                  color: "#fff",
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <Plus size={18} />
+                เพิ่มการแจ้งเตือน
+              </button>
+            </div>
+
+            <div
+              style={{
+                fontWeight: 800,
+                fontSize: "20px",
+                marginBottom: "14px",
+              }}
+            >
+              รายการยาที่ต้องกิน
+            </div>
+
+            {schedules.filter((item) => item.enabled).length === 0 ? (
+              <div className="info-card">
+                <div className="info-icon green">
+                  <Clock3 size={24} />
+                </div>
+
+                <div className="info-text">
+                  <div className="info-label">
+                    ยังไม่มีรายการยา
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: "4px",
+                      fontSize: "13px",
+                      color: "#6b7280",
+                    }}
+                  >
+                    กด “เพิ่มการแจ้งเตือน” เพื่อเพิ่มยาและเวลา
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: "grid",
+                  gap: "12px",
+                  maxHeight: "470px",
+                  overflowY: "auto",
+                  paddingRight: "4px",
+                }}
+              >
+                {schedules
+                  .filter((item) => item.enabled)
+                  .map((item) => {
+                    const medicineList =
+                      item.medicines?.length
+                        ? item.medicines
+                        : (item.medicine || "")
+                            .split(",")
+                            .map((name) => name.trim())
+                            .filter(Boolean);
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="info-card"
+                        style={{
+                          alignItems: "flex-start",
+                          padding: "16px",
+                        }}
+                      >
+                        <div className="info-icon green">
+                          <Clock3 size={24} />
+                        </div>
+
+                        <div
+                          className="info-text"
+                          style={{ flex: 1 }}
+                        >
+                          <div
+                            style={{
+                              fontSize: "16px",
+                              fontWeight: 800,
+                              marginBottom: "8px",
+                            }}
+                          >
+                            เวลาแจ้งเตือน : {item.time}
+                          </div>
+
+                          <div
+                            className="info-label"
+                            style={{
+                              marginBottom: "5px",
+                            }}
+                          >
+                            รายการยา
+                          </div>
+
+                          {medicineList.map(
+                            (medicine, index) => (
+                              <div
+                                key={`${item.id}-${medicine}-${index}`}
+                                style={{
+                                  paddingLeft: "12px",
+                                  marginTop: "3px",
+                                  fontSize: "14px",
+                                  fontWeight: 600,
+                                  lineHeight: "1.5",
+                                }}
+                              >
+                                {index + 1}. {medicine}
+                              </div>
+                            )
+                          )}
+
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: "8px",
+                              flexWrap: "wrap",
+                              marginTop: "12px",
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                startEditSchedule(item);
+                                setScreen("schedules");
+                              }}
+                              style={{
+                                border: "1px solid #2563eb",
+                                borderRadius: "8px",
+                                padding: "7px 10px",
+                                background: "#fff",
+                                color: "#2563eb",
+                                fontWeight: 800,
+                                cursor: "pointer",
+                              }}
+                            >
+                              EDIT
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => toggleSchedule(item)}
+                              style={{
+                                border: 0,
+                                borderRadius: "999px",
+                                padding: "7px 10px",
+                                background: item.enabled
+                                  ? "#dcfce7"
+                                  : "#eceff3",
+                                fontWeight: 800,
+                                cursor: "pointer",
+                              }}
+                            >
+                              {item.enabled ? "ON" : "OFF"}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => deleteSchedule(item)}
+                              aria-label={`Delete ${item.time}`}
+                              style={{
+                                border: "1px solid #ef4444",
+                                borderRadius: "8px",
+                                padding: "7px 10px",
+                                background: "#fff",
+                                color: "#dc2626",
+                                fontWeight: 800,
+                                cursor: "pointer",
+                              }}
+                            >
+                              ลบ
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
         ) : (
           <div style={{ marginTop: "22px" }}>
             <button
