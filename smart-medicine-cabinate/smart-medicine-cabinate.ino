@@ -5,1287 +5,313 @@
 #include <Adafruit_SSD1306.h>
 #include <ThreeWire.h>
 #include <RtcDS1302.h>
-#include <time.h>
 #include <Firebase_ESP_Client.h>
-#include "addons/TokenHelper.h"
+#include <time.h>
 
-// =====================================================
-// WIFI
+// ---------- WiFi ----------
+const char* SSID[] = {"Ruttanaporn_2.4G","ArmKodWai","PSRU Next WiFi"};
+const char* PASS[] = {"Ruttanaporn097","0834764734Arm",""};
 
-// =====================================================
-const char* WIFI_SSID_1 = "ArmKodWai";
-const char* WIFI_PASSWORD_1 = "0834764734Arm";
-
-const char* WIFI_SSID_2 = "PSRU Next WiFi";
-const char* WIFI_PASSWORD_2 = "";
-
-// =====================================================
-// FIREBASE
-
-// =====================================================
+// ---------- Firebase ----------
 #define API_KEY "AIzaSyBUOUDJaobn-WYzFa_m0aaK32WjTx-6Rvg"
 #define DATABASE_URL "https://smart-medicine-cabinet-e7c26-default-rtdb.asia-southeast1.firebasedatabase.app/"
 
-// =====================================================
-// PIN
-
-// =====================================================
-#define REED_PIN    27
-#define SERVO_PIN   26
-#define BUZZER_PIN  25
-#define SDA_PIN     21
-#define SCL_PIN     22
-
-// =====================================================
-// OLED
-
-// =====================================================
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
-#define OLED_RESET -1
-Adafruit_SSD1306 display(
-  SCREEN_WIDTH,
-  SCREEN_HEIGHT,
-  &Wire,
-  OLED_RESET
-);
-bool oledReady = false;
-
-// =====================================================
-// =====================================================
-// RTC DS1302
-// =====================================================
-
+// ---------- Pins ----------
+#define SDA_PIN 21
+#define SCL_PIN 22
 #define RTC_CLK 18
 #define RTC_DAT 19
 #define RTC_RST 23
+#define SERVO_PIN 26
+#define REED_PIN 27
+#define BUZZER_PIN 25
 
-ThreeWire myWire(
-  RTC_DAT,
-  RTC_CLK,
-  RTC_RST
-);
+#define BUZZER_ON LOW
+#define BUZZER_OFF HIGH
 
-RtcDS1302<ThreeWire> rtc(myWire);
+// LOCK = ตั้งตรง
+const int LOCK_ANGLE = 90;
+const int UNLOCK_ANGLE = 20;
 
-bool rtcReady = false;
+Servo servo;
+Adafruit_SSD1306 display(128,64,&Wire,-1);
+ThreeWire rtcWire(RTC_DAT,RTC_CLK,RTC_RST);
+RtcDS1302<ThreeWire> rtc(rtcWire);
 
-// =====================================================
-// SERVO
-
-// =====================================================
-Servo lockServo;
-const int LOCK_ANGLE = 20;
-const int UNLOCK_ANGLE = 80;
-bool isLocked = true;
-
-// =====================================================
-// FIREBASE
-
-// =====================================================
 FirebaseData fbdo;
 FirebaseAuth auth;
 FirebaseConfig config;
-bool signupOK = false;
 
-// =====================================================
-// DATABASE PATH
+bool firebaseOK=false, oledOK=false, rtcOK=false;
+bool isLocked=true, doorOpen=false, lastDoorOpen=false;
+bool scheduleEnabled=true, alarmOn=false;
 
-// =====================================================
-String basePath =
-  "/smartMedicineCabinet";
-String devicePath =
-  basePath + "/device/cabinet01";
-String commandPath =
-  basePath + "/commands/cabinet01";
-String schedulePath =
-  basePath + "/schedules/schedule001";
-String configPath =
-  basePath + "/config";
+String lastCommand="", medicineName="Vitamin C", medicineTime="12:00";
+String lastAlarmDate="", lastAlarmTime="";
 
-// =====================================================
-// MEDICINE DATA
+unsigned long tCmd=0, tSchedule=0, tHeartbeat=0;
 
-// =====================================================
-String medicineName = "Vitamin C";
-String medicineTime = "12:00";
-bool scheduleEnabled = true;
+const String BASE="/smartMedicineCabinet";
+const String DEVICE=BASE+"/device/cabinet01";
+const String COMMAND=BASE+"/commands/cabinet01";
+const String SCHEDULE=BASE+"/schedules/schedule001";
 
-// =====================================================
-// STATUS
+String two(int n){ return n<10 ? "0"+String(n) : String(n); }
 
-// =====================================================
-bool lastDoorState = false;
-bool medicineAlarm = false;
-
-// =====================================================
-// TIMER
-
-// =====================================================
-unsigned long lastFirebaseRead = 0;
-unsigned long lastHeartbeat = 0;
-unsigned long lastScheduleRead = 0;
-const unsigned long FIREBASE_INTERVAL = 700;
-const unsigned long HEARTBEAT_INTERVAL = 10000;
-const unsigned long SCHEDULE_INTERVAL = 10000;
-
-// =====================================================
-// PREVENT DUPLICATE ALARM
-
-// =====================================================
-String lastAlarmDate = "";
-String lastAlarmTime = "";
-
-// =====================================================
-// SETUP
-
-// =====================================================
-void setup() {
-  Serial.begin(115200);
-  delay(500);
-  Serial.println();
-  Serial.println("==========================");
-  Serial.println("SMART MEDICINE CABINET");
-  Serial.println("==========================");
-  // ------------------------------
-  // GPIO
-  // ------------------------------
-  pinMode(
-    REED_PIN,
-    INPUT_PULLUP
-  );
-  pinMode(
-    BUZZER_PIN,
-    OUTPUT
-  );
-  digitalWrite(
-    BUZZER_PIN,
-    LOW
-  );
-  // ------------------------------
-  // I2C
-  // ------------------------------
-  Wire.begin(
-    SDA_PIN,
-    SCL_PIN
-  );
-  // ------------------------------
-  // OLED
-  // ------------------------------
-  oledReady =
-    display.begin(
-      SSD1306_SWITCHCAPVCC,
-      0x3C
-    );
-  if (oledReady) {
-    showOLED(
-      "Smart Medicine",
-      "Starting..."
-    );
-  } else {
-    Serial.println(
-      "OLED not found"
-    );
-  }
-  // ------------------------------
-  // RTC
-  // ------------------------------
-rtc.Begin();
-rtcReady = true;
-
-if (rtc.GetIsWriteProtected()) {
-  rtc.SetIsWriteProtected(false);
+String nowText(){
+  RtcDateTime t=rtc.GetDateTime();
+  return String(t.Year())+"-"+two(t.Month())+"-"+two(t.Day())+" "+
+         two(t.Hour())+":"+two(t.Minute())+":"+two(t.Second());
 }
 
-if (!rtc.GetIsRunning()) {
-  rtc.SetIsRunning(true);
+void showStatus(){
+  if(!oledOK) return;
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  display.setTextSize(1);
+  display.setCursor(0,0);
+  display.println("Smart Medicine");
+  display.print("Next: "); display.println(medicineTime);
+  display.print("Lock: "); display.println(isLocked?"LOCKED":"UNLOCK");
+  display.print("Door: "); display.println(doorOpen?"OPEN":"CLOSED");
+  display.display();
 }
 
-RtcDateTime compiled =
-  RtcDateTime(__DATE__, __TIME__);
-
-if (!rtc.IsDateTimeValid()) {
-  Serial.println("RTC time invalid, setting time...");
-  rtc.SetDateTime(compiled);
+void moveServo(int angle){
+  servo.setPeriodHertz(50);
+  servo.attach(SERVO_PIN,500,2400);
+  servo.write(angle);
+  delay(700);
+  servo.detach();
 }
 
-rtcReady = rtc.IsDateTimeValid();
-
-if (rtcReady) {
-  Serial.println("RTC DS1302 OK");
-} else {
-  Serial.println("RTC DS1302 ERROR");
-}
-  // ------------------------------
-  // SERVO
-  // ------------------------------
-  lockServo.setPeriodHertz(50);
-  lockServo.attach(
-    SERVO_PIN,
-    500,
-    2400
-  );
-  lockServo.write(
-    LOCK_ANGLE
-  );
-  isLocked = true;
-  // ------------------------------
-  // WIFI
-  // ------------------------------
-  connectWiFi();
-  // Sync Internet time for heartbeat
-  syncInternetTime();
-  // ------------------------------
-  // FIREBASE
-  // ------------------------------
-  setupFirebase();
-  // ------------------------------
-  // CREATE DATABASE
-  // ------------------------------
-  waitFirebaseReady();
-  if (
-    Firebase.ready()
-    &&
-    signupOK
-  ) {
-    checkAndCreateDatabase();
-    // ESP32 Online
-    updateDeviceOnline(true);
-    // โหลดตารางยา
-    readSchedule();
-    // อ่านคำสั่งล็อก
-    readLockCommand();
-  }
-  // ------------------------------
-  // INITIAL DOOR STATUS
-  // ------------------------------
-  lastDoorState =
-    digitalRead(REED_PIN);
-  updateDoorStatus(
-    lastDoorState
-  );
+void lockCabinet(){
+  if(isLocked) return;
+  moveServo(LOCK_ANGLE);
+  isLocked=true;
+  if(firebaseOK) Firebase.RTDB.setString(&fbdo,DEVICE+"/lockStatus","LOCKED");
   showStatus();
 }
 
-// =====================================================
-// LOOP
-
-// =====================================================
-void loop() {
-  // ตรวจประตู
-  checkDoor();
-  // ตรวจเวลากินยา
-  checkMedicineTime();
-  if (
-    Firebase.ready()
-    &&
-    signupOK
-  ) {
-    // -----------------------------------
-    // COMMAND
-    // -----------------------------------
-    if (
-      millis() - lastFirebaseRead
-      >= FIREBASE_INTERVAL
-    ) {
-      lastFirebaseRead =
-        millis();
-      readLockCommand();
-    }
-    // -----------------------------------
-    // SCHEDULE
-    // -----------------------------------
-    if (
-      millis() - lastScheduleRead
-      >= SCHEDULE_INTERVAL
-    ) {
-      lastScheduleRead =
-        millis();
-      readSchedule();
-    }
-    // -----------------------------------
-    // HEARTBEAT
-    // -----------------------------------
-    if (
-      millis() - lastHeartbeat
-      >= HEARTBEAT_INTERVAL
-    ) {
-      lastHeartbeat =
-        millis();
-      updateDeviceOnline(true);
-    }
-  }
-  delay(50);
+void unlockCabinet(){
+  if(!isLocked) return;
+  moveServo(UNLOCK_ANGLE);
+  isLocked=false;
+  if(firebaseOK) Firebase.RTDB.setString(&fbdo,DEVICE+"/lockStatus","UNLOCKED");
+  showStatus();
 }
 
-// =====================================================
-// WIFI
-
-// =====================================================
-void connectWiFi() {
-
+void connectWiFi(){
   WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
 
-  // =========================
-  // WiFi ตัวที่ 1
-  // =========================
-  Serial.println();
-  Serial.println("Trying WiFi 1...");
-
-  WiFi.begin(
-    WIFI_SSID_1,
-    WIFI_PASSWORD_1
-  );
-
-  unsigned long start = millis();
-
-  while (
-    WiFi.status() != WL_CONNECTED &&
-    millis() - start < 15000
-  ) {
-    delay(500);
-    Serial.print(".");
+  for(int i=0;i<3 && WiFi.status()!=WL_CONNECTED;i++){
+    WiFi.begin(SSID[i],PASS[i]);
+    unsigned long s=millis();
+    while(WiFi.status()!=WL_CONNECTED && millis()-s<12000) delay(300);
+    if(WiFi.status()!=WL_CONNECTED){ WiFi.disconnect(false,false); delay(300); }
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println();
-    Serial.println("WiFi 1 CONNECTED");
+  if(WiFi.status()==WL_CONNECTED){
+    Serial.println("WiFi OK");
+    configTime(0,0,"pool.ntp.org","time.google.com");
+    unsigned long s=millis();
+    while(time(nullptr)<1700000000 && millis()-s<8000) delay(200);
+    Serial.println(time(nullptr)>=1700000000 ? "NTP OK" : "NTP WAIT");
+  }else Serial.println("WiFi FAIL");
+}
 
-    Serial.print("SSID: ");
-    Serial.println(WiFi.SSID());
+void setupFirebase(){
+  config.api_key=API_KEY;
+  config.database_url=DATABASE_URL;
 
-    Serial.print("IP: ");
-    Serial.println(WiFi.localIP());
-
+  if(!Firebase.signUp(&config,&auth,"","")){
+    Serial.println("Firebase SignUp FAIL");
     return;
   }
 
-  // =========================
-  // WiFi ตัวที่ 2
-  // =========================
-  Serial.println();
-  Serial.println("WiFi 1 failed");
+  Firebase.begin(&config,&auth);
+  Firebase.reconnectWiFi(true);
 
-  WiFi.disconnect();
-  delay(1000);
+  unsigned long s=millis();
+  while(!Firebase.ready() && millis()-s<15000) delay(100);
 
-  WiFi.mode(WIFI_STA);
-
-  Serial.println("Trying WiFi 2...");
-
-  WiFi.begin(
-    WIFI_SSID_2,
-    WIFI_PASSWORD_2
-  );
-
-  start = millis();
-
-  while (
-    WiFi.status() != WL_CONNECTED &&
-    millis() - start < 15000
-  ) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println();
-    Serial.println("WiFi 2 CONNECTED");
-
-    Serial.print("SSID: ");
-    Serial.println(WiFi.SSID());
-
-    Serial.print("IP: ");
-    Serial.println(WiFi.localIP());
-
-    return;
-  }
-
-  Serial.println();
-  Serial.println("ALL WIFI FAILED");
+  firebaseOK=Firebase.ready();
+  Serial.println(firebaseOK ? "Firebase OK" : "Firebase FAIL");
 }
 
-// =====================================================
-// FIREBASE SETUP
+void heartbeat(){
+  if(!firebaseOK) return;
 
-// =====================================================
-void setupFirebase() {
-  config.api_key =
-    API_KEY;
-  config.database_url =
-    DATABASE_URL;
-  config.token_status_callback =
-    tokenStatusCallback;
-  Serial.println(
-    "Firebase signing in..."
-  );
-  if (
-    Firebase.signUp(
-      &config,
-      &auth,
-      "",
-      ""
-    )
-  ) {
-    signupOK = true;
-    Serial.println(
-      "Firebase SignUp OK"
-    );
-  } else {
-    signupOK = false;
-    Serial.print(
-      "Firebase SignUp Error: "
-    );
-    Serial.println(
-      config.signer
-        .signupError
-        .message
-        .c_str()
-    );
-  }
-  Firebase.begin(
-    &config,
-    &auth
-  );
-  Firebase.reconnectWiFi(
-    true
-  );
+  Firebase.RTDB.setBool(&fbdo,DEVICE+"/online",true);
+
+  time_t e=time(nullptr);
+  if(e>=1700000000)
+    Firebase.RTDB.setInt(&fbdo,DEVICE+"/lastSeenEpoch",(int)e);
+
+  if(rtcOK)
+    Firebase.RTDB.setString(&fbdo,DEVICE+"/lastSeen",nowText());
 }
 
-// =====================================================
-// WAIT FIREBASE
+void readLock(){
+  if(!Firebase.RTDB.getString(&fbdo,COMMAND+"/lock")) return;
 
-// =====================================================
-void waitFirebaseReady() {
-  Serial.print(
-    "Waiting Firebase"
-  );
-  unsigned long start =
-    millis();
-  while (
-    !Firebase.ready()
-  ) {
-    delay(250);
-    Serial.print(".");
-    if (
-      millis() - start
-      > 20000
-    ) {
-      Serial.println();
-      Serial.println(
-        "Firebase timeout"
-      );
-      return;
-    }
-  }
-  Serial.println();
-  Serial.println(
-    "Firebase Ready"
-  );
+  String cmd=fbdo.stringData();
+  cmd.trim(); cmd.toUpperCase();
+
+  if(cmd==lastCommand) return;
+  lastCommand=cmd;
+
+  Serial.print("LOCK command = "); Serial.println(cmd);
+  if(cmd=="LOCK") lockCabinet();
+  else if(cmd=="UNLOCK") unlockCabinet();
 }
 
-// =====================================================
-// CREATE DATABASE AUTOMATICALLY
+void readSchedule(){
+  if(Firebase.RTDB.getString(&fbdo,SCHEDULE+"/medicine"))
+    medicineName=fbdo.stringData();
 
-// =====================================================
-void checkAndCreateDatabase() {
-  bool initialized = false;
-  String initPath =
-    configPath + "/initialized";
-  // ตรวจว่าฐานข้อมูลเคยสร้างหรือยัง
-  if (
-    Firebase.RTDB.getBool(
-      &fbdo,
-      initPath
-    )
-  ) {
-    initialized =
-      fbdo.boolData();
-  }
-  if (initialized) {
-    Serial.println(
-      "Database already initialized"
-    );
-    return;
-  }
-  Serial.println(
-    "Creating initial database..."
-  );
-  createInitialDatabase();
+  if(Firebase.RTDB.getString(&fbdo,SCHEDULE+"/time"))
+    medicineTime=fbdo.stringData();
+
+  if(Firebase.RTDB.getBool(&fbdo,SCHEDULE+"/enabled"))
+    scheduleEnabled=fbdo.boolData();
+
+  Firebase.RTDB.setString(&fbdo,DEVICE+"/nextDose",medicineTime);
+  showStatus();
 }
 
-// =====================================================
-// INITIAL DATABASE
+void saveHistory(String status,String eventTime){
+  if(!firebaseOK || !rtcOK) return;
 
-// =====================================================
-void createInitialDatabase() {
-  FirebaseJson json;
-  // --------------------------------------------------
-  // DEVICE
-  // --------------------------------------------------
-  json.set(
-    "device/cabinet01/online",
-    true
-  );
-  json.set(
-    "device/cabinet01/doorStatus",
-    "CLOSED"
-  );
-  json.set(
-    "device/cabinet01/lockStatus",
-    "LOCKED"
-  );
-  json.set(
-    "device/cabinet01/nextDose",
-    "12:00"
-  );
-  json.set(
-    "device/cabinet01/lastOpened",
-    "-"
-  );
-  json.set(
-    "device/cabinet01/doseStatus",
-    "NONE"
-  );
-  json.set(
-    "device/cabinet01/takenTime",
-    "-"
-  );
-  // --------------------------------------------------
-  // COMMAND
-  // --------------------------------------------------
-  json.set(
-    "commands/cabinet01/lock",
-    "LOCK"
-  );
-  json.set(
-    "commands/cabinet01/buzzer",
-    "OFF"
-  );
-  // --------------------------------------------------
-  // SCHEDULE
-  // --------------------------------------------------
-  json.set(
-    "schedules/schedule001/medicine",
-    "Vitamin C"
-  );
-  json.set(
-    "schedules/schedule001/time",
-    "12:00"
-  );
-  json.set(
-    "schedules/schedule001/enabled",
-    true
-  );
-  // --------------------------------------------------
-  // CONFIG
-  // --------------------------------------------------
-  json.set(
-    "config/initialized",
-    true
-  );
-  json.set(
-    "config/schemaVersion",
-    1
-  );
-  // --------------------------------------------------
-  // UPDATE DATABASE
-  // --------------------------------------------------
-  if (
-    Firebase.RTDB.updateNode(
-      &fbdo,
-      basePath,
-      &json
-    )
-  ) {
-    Serial.println(
-      "Database created successfully"
-    );
-  } else {
-    Serial.print(
-      "Database create error: "
-    );
-    Serial.println(
-      fbdo.errorReason()
-    );
-  }
+  RtcDateTime t=rtc.GetDateTime();
+  String id=String(t.Year())+two(t.Month())+two(t.Day())+"_"+
+            two(t.Hour())+two(t.Minute())+two(t.Second());
+
+  FirebaseJson j;
+  j.set("medicine",medicineName);
+  j.set("scheduledTime",medicineTime);
+  j.set("eventTime",eventTime);
+  j.set("status",status);
+
+  Firebase.RTDB.setJSON(&fbdo,BASE+"/history/"+id,&j);
 }
 
-// =====================================================
-// READ LOCK COMMAND
+void medicineTaken(){
+  alarmOn=false;
+  digitalWrite(BUZZER_PIN,BUZZER_OFF);
 
-// =====================================================
-void readLockCommand() {
-  String path =
-    commandPath + "/lock";
-  if (
-    Firebase.RTDB.getString(
-      &fbdo,
-      path
-    )
-  ) {
-    String command =
-      fbdo.stringData();
-    command.trim();
-    command.toUpperCase();
-    if (
-      command == "UNLOCK"
-      &&
-      isLocked
-    ) {
-      unlockCabinet();
-    }
-    if (
-      command == "LOCK"
-      &&
-      !isLocked
-    ) {
-      lockCabinet();
-    }
+  String taken=rtcOK ? nowText() : "-";
+
+  if(firebaseOK){
+    Firebase.RTDB.setString(&fbdo,DEVICE+"/doseStatus","TAKEN");
+    Firebase.RTDB.setString(&fbdo,DEVICE+"/takenTime",taken);
+    saveHistory("TAKEN",taken);
   }
+  showStatus();
 }
 
-// =====================================================
-// LOCK
-void moveServoSafe(int angle) {
-  lockServo.setPeriodHertz(50);
-  lockServo.attach(SERVO_PIN, 600, 2300);
-  lockServo.write(angle);
-  delay(500);
-  lockServo.detach();
+void checkDoor(){
+  bool s=digitalRead(REED_PIN);
+  if(s==lastDoorOpen) return;
+
+  delay(30);
+  s=digitalRead(REED_PIN);
+  if(s==lastDoorOpen) return;
+
+  doorOpen=lastDoorOpen=s;
+
+  if(firebaseOK){
+    Firebase.RTDB.setString(&fbdo,DEVICE+"/doorStatus",doorOpen?"OPEN":"CLOSED");
+    if(doorOpen && rtcOK)
+      Firebase.RTDB.setString(&fbdo,DEVICE+"/lastOpened",nowText());
+  }
+
+  if(doorOpen && alarmOn) medicineTaken();
+  showStatus();
 }
 
-// ใต้ตรงนี้เป็นของเดิม
-void lockCabinet() {
-// =====================================================
-void moveServoSafe(LOCK_ANGLE); {
-
-  Serial.println("ENTER lockCabinet");
-
-  lockServo.write(20);
-
-  delay(600);
-
-  Serial.println("AFTER servo");
-
-  isLocked = true;
-
-  Serial.println("BEFORE Firebase");
-
-  Firebase.RTDB.setString(
-    &fbdo,
-    devicePath + "/lockStatus",
-    "LOCKED"
-  );
-
-  Serial.println("AFTER Firebase");
-}
-
-// =====================================================
-// UNLOCK
-
-// =====================================================
-void moveServoSafe(UNLOCK_ANGLE); {
-
-  Serial.println("ENTER unlockCabinet");
-
-  lockServo.write(80);
-
-  delay(600);
-
-  Serial.println("AFTER servo");
-
-  isLocked = false;
-
-  Serial.println("BEFORE Firebase");
-
-  Firebase.RTDB.setString(
-    &fbdo,
-    devicePath + "/lockStatus",
-    "UNLOCKED"
-  );
-
-  Serial.println("AFTER Firebase");
-}
-// =====================================================
-// CHECK DOOR
-
-// =====================================================
-void checkDoor() {
-  /*
-    INPUT_PULLUP + Reed Switch
-    LOW  = ประตูปิด
-    HIGH = ประตูเปิด
-    ถ้าเซนเซอร์ของจริงกลับกัน
-    ให้กลับค่าตรงนี้
-  */
-  bool doorOpen =
-    digitalRead(
-      REED_PIN
-    );
-  if (
-    doorOpen
-    != lastDoorState
-  ) {
-    delay(30);
-    doorOpen =
-      digitalRead(
-        REED_PIN
-      );
-    if (
-      doorOpen
-      != lastDoorState
-    ) {
-      lastDoorState =
-        doorOpen;
-      updateDoorStatus(
-        doorOpen
-      );
-      if (doorOpen) {
-        Serial.println(
-          "Door OPEN"
-        );
-        saveLastOpened();
-        if (
-          medicineAlarm
-        ) {
-          medicineTaken();
-        }
-      } else {
-        Serial.println(
-          "Door CLOSED"
-        );
-      }
-      showStatus();
-    }
-  }
-}
-
-// =====================================================
-// UPDATE DOOR STATUS
-
-// =====================================================
-void updateDoorStatus(
-  bool doorOpen
-) {
-  if (
-    !Firebase.ready()
-  ) {
-    return;
-  }
-  Firebase.RTDB.setString(
-    &fbdo,
-    devicePath
-      + "/doorStatus",
-    doorOpen
-      ? "OPEN"
-      : "CLOSED"
-  );
-}
-
-// =====================================================
-// LAST OPENED
-
-// =====================================================
-void saveLastOpened() {
-  if (
-    !rtcReady
-  ) {
-    return;
-  }
-  RtcDateTime now = rtc.GetDateTime();
-  String dateTime =
-    formatDateTime(
-      now
-    );
-  Firebase.RTDB.setString(
-    &fbdo,
-    devicePath
-      + "/lastOpened",
-    dateTime
-  );
-}
-
-// =====================================================
-// READ MEDICINE SCHEDULE
-
-// =====================================================
-void readSchedule() {
-  // -----------------------------------
-  // MEDICINE
-  // -----------------------------------
-  if (
-    Firebase.RTDB.getString(
-      &fbdo,
-      schedulePath
-        + "/medicine"
-    )
-  ) {
-    medicineName =
-      fbdo.stringData();
-  }
-  // -----------------------------------
-  // TIME
-  // -----------------------------------
-  if (
-    Firebase.RTDB.getString(
-      &fbdo,
-      schedulePath
-        + "/time"
-    )
-  ) {
-    medicineTime =
-      fbdo.stringData();
-  }
-  // -----------------------------------
-  // ENABLED
-  // -----------------------------------
-  if (
-    Firebase.RTDB.getBool(
-      &fbdo,
-      schedulePath
-        + "/enabled"
-    )
-  ) {
-    scheduleEnabled =
-      fbdo.boolData();
-  }
-  // -----------------------------------
-  // NEXT DOSE
-  // -----------------------------------
-  Firebase.RTDB.setString(
-    &fbdo,
-    devicePath
-      + "/nextDose",
-    medicineTime
-  );
-  Serial.println(
-    "----- Schedule -----"
-  );
-  Serial.print(
-    "Medicine: "
-  );
-  Serial.println(
-    medicineName
-  );
-  Serial.print(
-    "Time: "
-  );
-  Serial.println(
-    medicineTime
-  );
-  Serial.print(
-    "Enabled: "
-  );
-  Serial.println(
-    scheduleEnabled
-      ? "YES"
-      : "NO"
-  );
-}
-
-// =====================================================
-// CHECK MEDICINE TIME
-
-// =====================================================
-void checkMedicineTime() {
-  if (
-    !rtcReady
-    ||
-    !scheduleEnabled
-  ) {
-    return;
-  }
-RtcDateTime now = rtc.GetDateTime();
-  String currentTime =
-    twoDigit(
-      now.Hour()
-    )
-    + ":"
-    + twoDigit(
-      now.Minute()
-    );
-  String currentDate =
-    String(
-      now.Year()
-    )
-    + "-"
-    + twoDigit(
-      now.Month()
-    )
-    + "-"
-    + twoDigit(
-      now.Day()
-    );
-  if (
-    currentTime
-    == medicineTime
-  ) {
-    // ป้องกันเตือนซ้ำในนาทีเดียวกัน
-    if (
-      lastAlarmDate
-        != currentDate
-      ||
-      lastAlarmTime
-        != currentTime
-    ) {
-      lastAlarmDate =
-        currentDate;
-      lastAlarmTime =
-        currentTime;
-      startMedicineAlarm();
-    }
-  }
-}
-
-// =====================================================
-// START ALARM
-
-// =====================================================
-void startMedicineAlarm() {
-  medicineAlarm = true;
-  Serial.println();
-  Serial.println(
-    "MEDICINE TIME!"
-  );
-  digitalWrite(
-    BUZZER_PIN,
-    HIGH
-  );
-  // ปลดล็อกตู้เมื่อถึงเวลา
+void startAlarm(){
+  alarmOn=true;
+  digitalWrite(BUZZER_PIN,BUZZER_ON);
   unlockCabinet();
-  Firebase.RTDB.setString(
-    &fbdo,
-    devicePath
-      + "/doseStatus",
-    "WAITING"
-  );
-  if (
-    oledReady
-  ) {
+
+  if(firebaseOK){
+    Firebase.RTDB.setString(&fbdo,DEVICE+"/doseStatus","WAITING");
+    saveHistory("ALERT",rtcOK?nowText():"-");
+  }
+
+  if(oledOK){
     display.clearDisplay();
-    display.setTextColor(
-      SSD1306_WHITE
-    );
+    display.setTextColor(SSD1306_WHITE);
     display.setTextSize(1);
-    display.setCursor(
-      0,
-      5
-    );
-    display.println(
-      "MEDICINE TIME"
-    );
-    display.println();
-    display.println(
-      medicineName
-    );
-    display.print(
-      "Time: "
-    );
-    display.println(
-      medicineTime
-    );
+    display.setCursor(0,5);
+    display.println("MEDICINE TIME");
+    display.println(medicineName);
+    display.print("Time: "); display.println(medicineTime);
     display.display();
   }
 }
 
-// =====================================================
-// MEDICINE TAKEN
+void checkMedicineTime(){
+  if(!rtcOK || !scheduleEnabled) return;
 
-// =====================================================
-void medicineTaken() {
-  medicineAlarm = false;
-  digitalWrite(
-    BUZZER_PIN,
-    LOW
-  );
-  if (
-    !rtcReady
-  ) {
-    return;
+  RtcDateTime t=rtc.GetDateTime();
+  String tm=two(t.Hour())+":"+two(t.Minute());
+  String dt=String(t.Year())+"-"+two(t.Month())+"-"+two(t.Day());
+
+  if(tm==medicineTime && (dt!=lastAlarmDate || tm!=lastAlarmTime)){
+    lastAlarmDate=dt;
+    lastAlarmTime=tm;
+    startAlarm();
   }
-RtcDateTime now = rtc.GetDateTime();
-  String taken =
-    formatDateTime(
-      now
-    );
-  Firebase.RTDB.setString(
-    &fbdo,
-    devicePath
-      + "/doseStatus",
-    "TAKEN"
-  );
-  Firebase.RTDB.setString(
-    &fbdo,
-    devicePath
-      + "/takenTime",
-    taken
-  );
-  saveHistory(
-    medicineName,
-    medicineTime,
-    taken
-  );
-  Serial.println(
-    "Medicine TAKEN"
-  );
+}
+
+void setup(){
+  Serial.begin(115200);
+
+  pinMode(REED_PIN,INPUT_PULLUP);
+  pinMode(BUZZER_PIN,OUTPUT);
+  digitalWrite(BUZZER_PIN,BUZZER_OFF);
+
+  Wire.begin(SDA_PIN,SCL_PIN);
+  oledOK=display.begin(SSD1306_SWITCHCAPVCC,0x3C);
+  if(!oledOK) oledOK=display.begin(SSD1306_SWITCHCAPVCC,0x3D);
+
+  rtc.Begin();
+  if(rtc.GetIsWriteProtected()) rtc.SetIsWriteProtected(false);
+  if(!rtc.GetIsRunning()) rtc.SetIsRunning(true);
+  if(!rtc.IsDateTimeValid()) rtc.SetDateTime(RtcDateTime(__DATE__,__TIME__));
+  rtcOK=rtc.IsDateTimeValid();
+
+  moveServo(LOCK_ANGLE);
+  isLocked=true;
+
+  connectWiFi();
+  if(WiFi.status()==WL_CONNECTED) setupFirebase();
+
+  doorOpen=lastDoorOpen=digitalRead(REED_PIN);
+
+  if(firebaseOK){
+    heartbeat();
+    readSchedule();
+    readLock();
+  }
+
   showStatus();
 }
 
-// =====================================================
+void loop(){
+  checkDoor();
+  checkMedicineTime();
 
+  if(firebaseOK && Firebase.ready()){
+    unsigned long now=millis();
 
-
-// SAVE HISTORY
-
-// =====================================================
-void saveHistory(
-  String medicine,
-  String scheduled,
-  String taken
-) {
-RtcDateTime now = rtc.GetDateTime();
-  String id =
-    String(
-      now.Year()
-    )
-    + twoDigit(
-      now.Month()
-    )
-    + twoDigit(
-      now.Day()
-    )
-    + "_"
-    + twoDigit(
-      now.Hour()
-    )
-    + twoDigit(
-      now.Minute()
-    )
-    + twoDigit(
-      now.Second()
-    );
-  String historyPath =
-    basePath
-    + "/history/"
-    + id;
-  FirebaseJson json;
-  json.set(
-    "medicine",
-    medicine
-  );
-  json.set(
-    "scheduledTime",
-    scheduled
-  );
-  json.set(
-    "takenTime",
-    taken
-  );
-  json.set(
-    "status",
-    "TAKEN"
-  );
-  Firebase.RTDB.setJSON(
-    &fbdo,
-    historyPath,
-    &json
-  );
-}
-
-// =====================================================
-// HEARTBEAT
-
-// =====================================================
-void updateDeviceOnline(bool status) {
-  Firebase.RTDB.setBool(
-    &fbdo,
-    devicePath + "/online",
-    status
-  );
-  time_t nowEpoch = time(nullptr);
-  if (nowEpoch > 1700000000) {
-    Firebase.RTDB.setInt(
-      &fbdo,
-      devicePath + "/lastSeenEpoch",
-      (int)nowEpoch
-    );
+    if(now-tCmd>=1000){ tCmd=now; readLock(); }
+    if(now-tSchedule>=10000){ tSchedule=now; readSchedule(); }
+    if(now-tHeartbeat>=10000){ tHeartbeat=now; heartbeat(); }
   }
-  if (rtcReady) {
-    RtcDateTime now = rtc.GetDateTime();
-    Firebase.RTDB.setString(
-      &fbdo,
-      devicePath + "/lastSeen",
-      formatDateTime(now)
-    );
-  }
-}
 
-// =====================================================
-// OLED STATUS
-
-// =====================================================
-void showStatus() {
-  if (
-    !oledReady
-  ) {
-    return;
-  }
-  display.clearDisplay();
-  display.setTextColor(
-    SSD1306_WHITE
-  );
-  display.setTextSize(1);
-  display.setCursor(
-    0,
-    0
-  );
-  display.println(
-    "Smart Medicine"
-  );
-  display.println(
-    "Cabinet"
-  );
-  display.println();
-  display.print(
-    "Next: "
-  );
-  display.println(
-    medicineTime
-  );
-  display.print(
-    "Lock: "
-  );
-  if (
-    isLocked
-  ) {
-    display.println(
-      "LOCKED"
-    );
-  } else {
-    display.println(
-      "UNLOCK"
-    );
-  }
-  display.print(
-    "Door: "
-  );
-  display.println(
-    lastDoorState
-      ? "OPEN"
-      : "CLOSED"
-  );
-  display.display();
-}
-
-// =====================================================
-// OLED MESSAGE
-
-// =====================================================
-void showOLED(
-  String line1,
-  String line2
-) {
-  if (
-    !oledReady
-  ) {
-    return;
-  }
-  display.clearDisplay();
-  display.setTextColor(
-    SSD1306_WHITE
-  );
-  display.setTextSize(1);
-  display.setCursor(
-    0,
-    10
-  );
-  display.println(
-    line1
-  );
-  display.println();
-  display.println(
-    line2
-  );
-  display.display();
-}
-
-// =====================================================
-// DATE FORMAT
-
-// =====================================================
-String formatDateTime(
-  RtcDateTime dt
-) {
-  return
-    String(
-      dt.Year()
-    )
-    + "-"
-    + twoDigit(
-      dt.Month()
-    )
-    + "-"
-    + twoDigit(
-      dt.Day()
-    )
-    + " "
-    + twoDigit(
-      dt.Hour()
-    )
-    + ":"
-    + twoDigit(
-      dt.Minute()
-    )
-    + ":"
-    + twoDigit(
-      dt.Second()
-    );
-}
-
-// =====================================================
-// TWO DIGIT
-
-// =====================================================
-void syncInternetTime() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("NTP skipped: WiFi not connected");
-    return;
-  }
-  configTime(
-    0,
-    0,
-    "pool.ntp.org",
-    "time.google.com",
-    "time.nist.gov"
-  );
-  Serial.print("Syncing internet time");
-  unsigned long start = millis();
-  while (time(nullptr) < 1700000000) {
-    delay(300);
-    Serial.print(".");
-    if (millis() - start > 15000) {
-      Serial.println();
-      Serial.println("NTP sync timeout");
-      return;
-    }
-  }
-  Serial.println();
-  Serial.println("NTP time synced");
-}
-String twoDigit(
-  int number
-) {
-  if (
-    number < 10
-  ) {
-    return
-      "0"
-      + String(
-        number
-      );
-  }
-  return String(
-    number
-  );
+  delay(50);
 }

@@ -9,7 +9,7 @@ const OFFLINE_AFTER_SECONDS = 30;
 export default function App() {
   const [onlineFlag, setOnlineFlag] = useState(false);
   const [connected, setConnected] = useState(false);
-  const [lastSeenEpoch, setLastSeenEpoch] = useState(0);
+  const [lastDeviceUpdate, setLastDeviceUpdate] = useState(0);
   const [isLocked, setIsLocked] = useState(true);
   const [nextDose, setNextDose] = useState("--:--");
   const [schedules, setSchedules] = useState([]);
@@ -39,14 +39,23 @@ export default function App() {
         unsubscribe = onValue(deviceRef, (snapshot) => {
           if (!snapshot.exists()) {
             setOnlineFlag(false);
-            setLastSeenEpoch(0);
+            setConnected(false);
+            setLastDeviceUpdate(0);
             return;
           }
 
           const data = snapshot.val();
+          const boardOnline = data.online === true;
 
-          setOnlineFlag(data.online === true);
-          setLastSeenEpoch(Number(data.lastSeenEpoch || 0));
+          setOnlineFlag(boardOnline);
+
+          // ถ้ารับข้อมูลจาก ESP32 และ online=true -> Connected ทันที
+          if (boardOnline) {
+            setConnected(true);
+            setLastDeviceUpdate(Date.now());
+          } else {
+            setConnected(false);
+          }
           setIsLocked(data.lockStatus === "LOCKED");
           setCabinetStatus(data.doorStatus || "-");
           setLastOpened(data.lastOpened || "-");
@@ -120,22 +129,24 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const checkHeartbeat = () => {
-      const nowEpoch = Math.floor(Date.now() / 1000);
-      const age = nowEpoch - lastSeenEpoch;
+    const checkConnection = () => {
+      if (!onlineFlag || lastDeviceUpdate === 0) {
+        setConnected(false);
+        return;
+      }
 
-      const fresh =
-        lastSeenEpoch > 0 &&
-        age >= 0 &&
-        age <= OFFLINE_AFTER_SECONDS;
+      // ESP32 ส่ง lastSeen ทุก 10 วินาที
+      // ถ้าเงียบเกิน 30 วินาที ถือว่าหลุด
+      const age = Date.now() - lastDeviceUpdate;
 
-      setConnected(onlineFlag && fresh);
+      if (age > OFFLINE_AFTER_SECONDS * 1000) {
+        setConnected(false);
+      }
     };
 
-    checkHeartbeat();
-    const timer = setInterval(checkHeartbeat, 5000);
+    const timer = setInterval(checkConnection, 5000);
     return () => clearInterval(timer);
-  }, [onlineFlag, lastSeenEpoch]);
+  }, [onlineFlag, lastDeviceUpdate]);
 
   const unlockCabinet = async () => {
     await set(ref(db, "smartMedicineCabinet/commands/cabinet01/lock"), "UNLOCK");
@@ -211,92 +222,42 @@ export default function App() {
     );
   };
 
-  const getScheduleMedicineIds = (item) => {
-    if (
-      item.medicineIds
-      && typeof item.medicineIds === "object"
-      && !Array.isArray(item.medicineIds)
-    ) {
-      return Object.keys(item.medicineIds)
-        .filter((id) => item.medicineIds[id]);
-    }
-
-    if (Array.isArray(item.medicineIds)) {
-      return item.medicineIds;
-    }
-
-    if (item.medicineId) {
-      return [item.medicineId];
-    }
-
-    const names =
-      item.medicines?.length
-        ? item.medicines
-        : (item.medicine || "")
-            .split(",")
-            .map((name) => name.trim())
-            .filter(Boolean);
-
-    return medicines
-      .filter((medicine) =>
-        names.includes(medicine.name)
-      )
-      .map((medicine) => medicine.id);
-  };
-
-  const editScheduleInTopForm = (item) => {
-    const ids = getScheduleMedicineIds(item);
-
-    setEditingScheduleId(item.id);
-    setSelectedMedicineIds(ids);
-    setSelectedMedicineId(ids[0] || "");
-    setNewTime(item.time || "");
-    setScheduleMessage(
-      "กำลังแก้ไขรายการนี้"
-    );
-
-    // เลื่อนกลับไปด้านบนของหน้าตั้งเวลา
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
-  };
-
-  const cancelTopFormEdit = () => {
-    setEditingScheduleId("");
-    setSelectedMedicineIds([]);
-    setSelectedMedicineId("");
-    setNewTime("");
-    setScheduleMessage("");
-  };
-
   const addSchedule = async () => {
-    const timeRegex =
-      /^([01]\d|2[0-3]):([0-5]\d)$/;
+    const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
     if (!timeRegex.test(newTime)) {
-      setScheduleMessage(
-        "กรุณาพิมพ์เวลาแบบ HH:MM เช่น 08:30"
-      );
+      setScheduleMessage("กรุณาพิมพ์เวลาแบบ HH:MM เช่น 08:30");
+      return;
+    }
+
+    const used = new Set(schedules.map((item) => item.id));
+    let newId = "";
+
+    for (let i = 1; i <= 10; i += 1) {
+      const candidate = `schedule${String(i).padStart(3, "0")}`;
+      if (!used.has(candidate)) {
+        newId = candidate;
+        break;
+      }
+    }
+
+    if (!newId) {
+      setScheduleMessage("ตั้งเวลาได้สูงสุด 10 รายการ");
       return;
     }
 
     const selectedMedicines =
-      medicines.filter((item) =>
-        selectedMedicineIds.includes(item.id)
+      medicines.filter(
+        (item) => selectedMedicineIds.includes(item.id)
       );
 
     if (selectedMedicines.length === 0) {
-      setScheduleMessage(
-        "กรุณาเลือกยาอย่างน้อย 1 รายการ"
-      );
+      setScheduleMessage("กรุณาเพิ่มยาอย่างน้อย 1 รายการ");
       return;
     }
 
     const medicineNames =
-      selectedMedicines.map(
-        (item) => item.name
-      );
+      selectedMedicines.map((item) => item.name);
 
     const medicineIdsObject =
       selectedMedicines.reduce(
@@ -308,83 +269,24 @@ export default function App() {
       );
 
     try {
-      if (editingScheduleId) {
-        await update(
-          ref(
-            db,
-            `smartMedicineCabinet/schedules/${editingScheduleId}`
-          ),
-          {
-            medicineIds: medicineIdsObject,
-            medicines: medicineNames,
-            medicine: medicineNames.join(", "),
-            time: newTime,
-            enabled: true,
-          }
-        );
-
-        setScheduleMessage(
-          "แก้ไขรายการเรียบร้อย"
-        );
-      } else {
-        const used =
-          new Set(
-            schedules.map(
-              (item) => item.id
-            )
-          );
-
-        let newId = "";
-
-        for (let i = 1; i <= 10; i += 1) {
-          const candidate =
-            `schedule${String(i).padStart(3, "0")}`;
-
-          if (!used.has(candidate)) {
-            newId = candidate;
-            break;
-          }
+      await set(
+        ref(db, `smartMedicineCabinet/schedules/${newId}`),
+        {
+          medicineIds: medicineIdsObject,
+          medicines: medicineNames,
+          // เก็บ medicine เป็นข้อความรวม เพื่อให้ ESP32 โค้ดเดิมยังอ่านได้
+          medicine: medicineNames.join(", "),
+          time: newTime,
+          enabled: true,
         }
+      );
 
-        if (!newId) {
-          setScheduleMessage(
-            "ตั้งเวลาได้สูงสุด 10 รายการ"
-          );
-          return;
-        }
-
-        await set(
-          ref(
-            db,
-            `smartMedicineCabinet/schedules/${newId}`
-          ),
-          {
-            medicineIds: medicineIdsObject,
-            medicines: medicineNames,
-            medicine: medicineNames.join(", "),
-            time: newTime,
-            enabled: true,
-          }
-        );
-
-        setScheduleMessage(
-          "เพิ่มเวลาเรียบร้อย"
-        );
-      }
-
-      setEditingScheduleId("");
-      setSelectedMedicineIds([]);
-      setSelectedMedicineId("");
       setNewTime("");
-
+      setSelectedMedicineIds([]);
+      setScheduleMessage("เพิ่มเวลาเรียบร้อย");
     } catch (error) {
       console.error(error);
-
-      setScheduleMessage(
-        editingScheduleId
-          ? "แก้ไขรายการไม่สำเร็จ"
-          : "เพิ่มเวลาไม่สำเร็จ"
-      );
+      setScheduleMessage("บันทึกเวลาไม่สำเร็จ");
     }
   };
 
@@ -628,7 +530,20 @@ export default function App() {
       .map((medicine) => medicine.id);
   };
 
+  const startEditSchedule = (item) => {
+    setEditingScheduleId(item.id);
+    setEditingTime(item.time);
+    setEditingMedicineIds(
+      getMedicineIdsForSchedule(item)
+    );
+    setScheduleMessage("");
+  };
 
+  const cancelEditSchedule = () => {
+    setEditingScheduleId("");
+    setEditingTime("");
+    setEditingMedicineIds([]);
+  };
 
   const addMedicineToEdit = (medicineId) => {
     if (!medicineId) {
@@ -653,6 +568,77 @@ export default function App() {
     );
   };
 
+  const saveEditSchedule = async (item) => {
+    const timeRegex =
+      /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+    if (!timeRegex.test(editingTime)) {
+      setScheduleMessage(
+        "กรุณาพิมพ์เวลาแบบ HH:MM เช่น 08:30"
+      );
+      return;
+    }
+
+    if (editingMedicineIds.length === 0) {
+      setScheduleMessage(
+        "กรุณาเลือกยาอย่างน้อย 1 รายการ"
+      );
+      return;
+    }
+
+    const selectedMedicines =
+      medicines.filter((medicine) =>
+        editingMedicineIds.includes(
+          medicine.id
+        )
+      );
+
+    const medicineNames =
+      selectedMedicines.map(
+        (medicine) => medicine.name
+      );
+
+    const medicineIdsObject =
+      selectedMedicines.reduce(
+        (acc, medicine) => {
+          acc[medicine.id] = true;
+          return acc;
+        },
+        {}
+      );
+
+    try {
+      await update(
+        ref(
+          db,
+          `smartMedicineCabinet/schedules/${item.id}`
+        ),
+        {
+          time: editingTime,
+          medicineIds: medicineIdsObject,
+          medicines: medicineNames,
+          medicine: medicineNames.join(", "),
+          medicineId:
+            selectedMedicines.length === 1
+              ? selectedMedicines[0].id
+              : "",
+        }
+      );
+
+      setEditingScheduleId("");
+      setEditingTime("");
+      setEditingMedicineIds([]);
+
+      setScheduleMessage(
+        "แก้ไขยาและเวลาเรียบร้อย"
+      );
+    } catch (error) {
+      console.error(error);
+      setScheduleMessage(
+        "แก้ไขรายการไม่สำเร็จ"
+      );
+    }
+  };
 
   const toggleSchedule = async (item) => {
     await update(
@@ -1038,7 +1024,7 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => {
-                                editScheduleInTopForm(item);
+                                startEditSchedule(item);
                                 setScreen("schedules");
                               }}
                               style={{
@@ -1391,25 +1377,8 @@ export default function App() {
                   }}
                 >
                   <Plus size={20} />
-                  {editingScheduleId ? "SAVE" : "ADD"}
+                  ADD
                 </button>
-
-                {editingScheduleId && (
-                  <button
-                    type="button"
-                    onClick={cancelTopFormEdit}
-                    style={{
-                      border: "1px solid #d1d5db",
-                      borderRadius: "10px",
-                      padding: "10px 12px",
-                      fontWeight: 800,
-                      cursor: "pointer",
-                      background: "#fff",
-                    }}
-                  >
-                    CANCEL
-                  </button>
-                )}
               </div>
 
               {scheduleMessage && (
@@ -1462,20 +1431,208 @@ export default function App() {
                         minWidth: 0,
                       }}
                     >
-                      <>
-                        <div className="info-label">
-                          {item.medicines?.length
-                            ? item.medicines.join(" + ")
-                            : item.medicine}
-                        </div>
+                      {editingScheduleId === item.id ? (
+                        <>
+                          <div
+                            className="info-label"
+                            style={{ marginBottom: "7px" }}
+                          >
+                            แก้ไขยา
+                          </div>
 
-                        <div className="info-value">
-                          {item.time}
-                        </div>
-                      </>
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: "7px",
+                              flexWrap: "wrap",
+                              marginBottom: "8px",
+                            }}
+                          >
+                            {editingMedicineIds.map((id) => {
+                              const medicine =
+                                medicines.find(
+                                  (m) => m.id === id
+                                );
+
+                              if (!medicine) {
+                                return null;
+                              }
+
+                              return (
+                                <div
+                                  key={id}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "5px",
+                                    padding: "6px 8px",
+                                    borderRadius: "999px",
+                                    background: "#e8f5ec",
+                                    fontSize: "13px",
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  <span>{medicine.name}</span>
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      removeMedicineFromEdit(id)
+                                    }
+                                    style={{
+                                      border: 0,
+                                      background: "transparent",
+                                      cursor: "pointer",
+                                      padding: 0,
+                                      fontSize: "16px",
+                                      lineHeight: 1,
+                                    }}
+                                    aria-label={`เอา ${medicine.name} ออกจากรายการ`}
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          <select
+                            value=""
+                            onChange={(e) => {
+                              addMedicineToEdit(
+                                e.target.value
+                              );
+                              e.target.value = "";
+                            }}
+                            style={{
+                              width: "100%",
+                              boxSizing: "border-box",
+                              padding: "8px 10px",
+                              marginBottom: "8px",
+                              border: "1px solid #d7dce3",
+                              borderRadius: "8px",
+                              background: "#fff",
+                            }}
+                          >
+                            <option value="">
+                              + เพิ่มยาในรายการนี้
+                            </option>
+
+                            {medicines
+                              .filter(
+                                (medicine) =>
+                                  !editingMedicineIds.includes(
+                                    medicine.id
+                                  )
+                              )
+                              .map((medicine) => (
+                                <option
+                                  key={medicine.id}
+                                  value={medicine.id}
+                                >
+                                  {medicine.name}
+                                </option>
+                              ))}
+                          </select>
+
+                          <div
+                            className="info-label"
+                            style={{ marginBottom: "4px" }}
+                          >
+                            แก้ไขเวลา
+                          </div>
+
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            maxLength={5}
+                            value={editingTime}
+                            onChange={(e) => {
+                              let value =
+                                e.target.value.replace(
+                                  /[^0-9:]/g,
+                                  ""
+                                );
+
+                              if (
+                                value.length === 2
+                                &&
+                                !value.includes(":")
+                                &&
+                                editingTime.length
+                                  < value.length
+                              ) {
+                                value += ":";
+                              }
+
+                              setEditingTime(
+                                value.slice(0, 5)
+                              );
+                            }}
+                            placeholder="HH:MM"
+                            style={{
+                              width: "100px",
+                              boxSizing: "border-box",
+                              padding: "7px 8px",
+                              border: "1px solid #cfd5dc",
+                              borderRadius: "8px",
+                              fontSize: "16px",
+                              fontWeight: 700,
+                            }}
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <div className="info-label">
+                            {item.medicines?.length
+                              ? item.medicines.join(" + ")
+                              : item.medicine}
+                          </div>
+
+                          <div className="info-value">
+                            {item.time}
+                          </div>
+                        </>
+                      )}
                     </div>
 
-                    <div
+                    {editingScheduleId === item.id ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            saveEditSchedule(item)
+                          }
+                          style={{
+                            border: 0,
+                            borderRadius: "8px",
+                            padding: "8px 10px",
+                            fontWeight: 800,
+                            cursor: "pointer",
+                            background: "#20b85a",
+                            color: "#fff",
+                          }}
+                        >
+                          SAVE
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={cancelEditSchedule}
+                          style={{
+                            border: "1px solid #d1d5db",
+                            borderRadius: "8px",
+                            padding: "8px 10px",
+                            fontWeight: 800,
+                            cursor: "pointer",
+                            background: "#fff",
+                          }}
+                        >
+                          CANCEL
+                        </button>
+                      </>
+                    ) : (
+                      <div
                         style={{
                           display: "flex",
                           flexDirection: "column",
@@ -1487,7 +1644,7 @@ export default function App() {
                         <button
                           type="button"
                           onClick={() =>
-                            editScheduleInTopForm(item)
+                            startEditSchedule(item)
                           }
                           style={{
                             border: "1px solid #2563eb",
@@ -1547,6 +1704,7 @@ export default function App() {
                           </button>
                         </div>
                       </div>
+                    )}
                   </div>
                 ))
               )}
